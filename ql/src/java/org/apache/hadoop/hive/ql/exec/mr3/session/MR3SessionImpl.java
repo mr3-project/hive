@@ -277,18 +277,22 @@ public class MR3SessionImpl implements MR3Session {
   private MR3Conf createDagConf(Configuration mr3TaskConf, String dagUser) {
     boolean confStopCrossDagReuse = HiveConf.getBoolVar(mr3TaskConf,
         HiveConf.ConfVars.MR3_CONTAINER_STOP_CROSS_DAG_REUSE);
+    int taskMaxFailedAttempts = HiveConf.getIntVar(mr3TaskConf,
+        HiveConf.ConfVars.MR3_AM_TASK_MAX_FAILED_ATTEMPTS);
     if (shareMr3Session) {
       // TODO: if HIVE_SERVER2_ENABLE_DOAS is false, sessionUser.equals(dagUser) is always true
       boolean stopCrossDagReuse = sessionUser.equals(dagUser) && confStopCrossDagReuse;
       // do not add sessionConf because Configuration for MR3Session should be reused.
       return new MR3ConfBuilder(false)
           .setBoolean(MR3Conf$.MODULE$.MR3_CONTAINER_STOP_CROSS_DAG_REUSE(), stopCrossDagReuse)
+          .setInt(MR3Conf$.MODULE$.MR3_AM_TASK_MAX_FAILED_ATTEMPTS(), taskMaxFailedAttempts)
           .build();
     } else {
       // add sessionConf because this session is for the DAG being submitted.
       return new MR3ConfBuilder(false)
           .addResource(mr3TaskConf)
           .setBoolean(MR3Conf$.MODULE$.MR3_CONTAINER_STOP_CROSS_DAG_REUSE(), confStopCrossDagReuse)
+          .setInt(MR3Conf$.MODULE$.MR3_AM_TASK_MAX_FAILED_ATTEMPTS(), taskMaxFailedAttempts)
           .build();
     }
   }

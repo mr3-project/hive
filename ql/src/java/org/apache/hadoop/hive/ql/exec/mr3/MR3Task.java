@@ -330,6 +330,19 @@ public class MR3Task {
     for (LocalResource lr: amDagCommonLocalResources.values()) {
       allPaths.add(ConverterUtils.getPathFromYarnURL(lr.getResource()));
     }
+    for (Path path: allPaths) {
+      LOG.info("Marking Path as needing credentials for DAG: " + path);
+    }
+    final String[] additionalCredentialsSource = HiveConf.getTrimmedStringsVar(jobConf,
+        HiveConf.ConfVars.MR3_DAG_ADDITIONAL_CREDENTIALS_SOURCE);
+    for (String addPath: additionalCredentialsSource) {
+      try {
+        allPaths.add(new Path(addPath));
+        LOG.info("Additional source for DAG credentials: " + addPath);
+      } catch (IllegalArgumentException ex) {
+        LOG.error("Ignoring a wrong path for DAG credentials: " + addPath);
+      }
+    }
     dag.addPathsToCredentials(dagUtils, allPaths, jobConf);
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_BUILD_DAG);

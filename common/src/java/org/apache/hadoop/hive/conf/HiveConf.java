@@ -4711,7 +4711,7 @@ public class HiveConf extends Configuration {
     // which is shared by both DAGAppMaster and ContainerWorkers as a LocalResource.
     // It is fixed per MR3Session, i.e., at the time of creating a new MR3Session.
     MR3_CONTAINER_MAX_JAVA_HEAP_FRACTION("hive.mr3.container.max.java.heap.fraction", 0.8f,
-        "fraction of task memory to be used as Java heap. Fixed at the time of creating each MR3Session."),
+        "Fraction of task memory to be used as Java heap. Fixed at the time of creating each MR3Session."),
     // for ContainerGroup (in DAG)
     // These configurations are used only when creating ContainerGroup.
     // Hence, they do not affect MR3Conf (mr3-conf.pb) passed to DAGAppMaster and ContainerWorkers.
@@ -4785,6 +4785,12 @@ public class HiveConf extends Configuration {
     // TODO: should be computed at runtime and passed to ContainerWorkers
     MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS("hive.mr3.bucket.mapjoin.estimate.num.containers", 10,
         "Estimate number of nodes for converting to bucket mapjoin"),
+    MR3_DAG_ADDITIONAL_CREDENTIALS_SOURCE("hive.mr3.dag.additional.credentials.source", "",
+        "Comma separated list of additional paths for obtaining DAG Credentials"),
+
+    // fault tolerance
+    MR3_AM_TASK_MAX_FAILED_ATTEMPTS("hive.mr3.am.task.max.failed.attempts", 3,
+        "Max number of attempts for each Task"),
 
     // Kubernetes
     HIVE_MR3_LOCALIZE_SESSION_JARS("hive.mr3.localize.session.jars", true,
