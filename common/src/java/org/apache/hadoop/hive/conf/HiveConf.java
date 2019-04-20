@@ -4702,8 +4702,6 @@ public class HiveConf extends Configuration {
             "This is a performance optimization that forces the final FileSinkOperator to write to the blobstore.\n" +
             "See HIVE-15121 for details."),
 
-    HIVE_MR3_JAR_DIR("hive.mr3.jar.dir", null,
-        "This is the location Hive in MR3 mode will look for to find site-wide installed resources."),
     MR3_CLIENT_CONNECT_TIMEOUT("hive.mr3.client.connect.timeout",
         "60000ms", new TimeValidator(TimeUnit.MILLISECONDS),
         "Timeout for Hive to establish connection to MR3 Application Master."),
@@ -4779,7 +4777,11 @@ public class HiveConf extends Configuration {
         "Start a daemon ShuffleHandler in every non-local ContainerWorker"),
     // HiveServer2
     HIVE_SERVER2_MR3_SHARE_SESSION("hive.server2.mr3.share.session", false,
-        "Use a common MR3Session to be shared by all HiveSessions");
+        "Use a common MR3Session to be shared by all HiveSessions"),
+
+    // Kubernetes
+    HIVE_MR3_LOCALIZE_SESSION_JARS("hive.mr3.localize.session.jars", true,
+        "Localize session jars");
 
     public final String varname;
     public final String altName;

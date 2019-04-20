@@ -272,6 +272,8 @@ public class DAG {
 
   private DAGAPI.DaemonVertexProto createShuffleHandlerDaemonVertexProto(
         ByteString userPayload) {
+    // TODO: introduce MR3_SHUFFLEHANDLER_DAEMON_TASK_MEMORY_MB and MR3_SHUFFLEHANDLER_DAEMON_TASK_VCORES,
+    // but only if a performance/stability problem arises from ShuffleHandler
     DAGAPI.ResourceProto resource = DAGAPI.ResourceProto.newBuilder()
         .setMemoryMb(0)
         .setVirtualCores(0)

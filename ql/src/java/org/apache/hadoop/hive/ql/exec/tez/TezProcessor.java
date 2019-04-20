@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.hive.conf.Constants;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.ObjectCacheFactory;
+import org.apache.hadoop.hive.ql.io.orc.OrcFile;
 import org.apache.tez.runtime.api.TaskFailureType;
 import org.apache.tez.runtime.api.events.CustomProcessorEvent;
 import org.slf4j.Logger;
@@ -146,6 +147,7 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
   public TezProcessor(ProcessorContext context) {
     super(context);
     ObjectCache.setupObjectRegistry(context);
+    OrcFile.setupOrcMemoryManager(context);
   }
 
   @Override

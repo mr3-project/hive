@@ -1056,11 +1056,17 @@ public class DAGUtils {
    * @return
      */
   public String[] getSessionInitJars(Configuration conf) throws URISyntaxException  {
-    String execjar = getExecJarPathLocal();
-    String auxjars = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEAUXJARS);
-    // need to localize the hive-exec jars and hive.aux.jars
-    // we need the directory on hdfs to which we shall put all these files
-    return (execjar + "," + auxjars).split(",");
+    boolean localizeSessionJars = HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVE_MR3_LOCALIZE_SESSION_JARS);
+    if (localizeSessionJars) {
+      String execjar = getExecJarPathLocal();
+      String auxjars = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEAUXJARS);
+      // need to localize the hive-exec jars and hive.aux.jars
+      // we need the directory on hdfs to which we shall put all these files
+      return (execjar + "," + auxjars).split(",");
+    } else {
+      LOG.info("Skipping localizing initial session jars");
+      return new String[0];
+    }
   }
 
   /**
@@ -1073,7 +1079,7 @@ public class DAGUtils {
    * @throws LoginException when getDefaultDestDir fails with the same exception
    */
   public List<LocalResource> localizeTempFilesFromConf(
-      String hdfsDirPathStr, Configuration conf) throws IOException, LoginException {
+      Path hdfsDirPathStr, Configuration conf) throws IOException, LoginException {
     List<LocalResource> tmpResources = new ArrayList<LocalResource>();
 
     if (HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVEADDFILESUSEHDFSLOCATION)) {
@@ -1155,7 +1161,7 @@ public class DAGUtils {
    * @throws IOException when hdfs operation fails.
    * @throws LoginException when getDefaultDestDir fails with the same exception
    */
-  public List<LocalResource> localizeTempFiles(String hdfsDirPathStr, Configuration conf,
+  public List<LocalResource> localizeTempFiles(Path hdfsDirPathStr, Configuration conf,
       String[] inputOutputJars) throws IOException, LoginException {
     List<LocalResource> tmpResources = new ArrayList<LocalResource>();
     addTempResources(conf, tmpResources, hdfsDirPathStr, LocalResourceType.FILE, inputOutputJars);
@@ -1163,7 +1169,7 @@ public class DAGUtils {
   }
 
   private void addTempResources(Configuration conf,
-      List<LocalResource> tmpResources, String hdfsDirPathStr,
+      List<LocalResource> tmpResources, Path hdfsDirPathStr,
       LocalResourceType type,
       String[] files) throws IOException {
     if (files == null) return;
@@ -1176,28 +1182,6 @@ public class DAGUtils {
           hdfsFilePath, type, conf);
       tmpResources.add(localResource);
     }
-  }
-
-  public FileStatus getHiveJarDirectory(Configuration conf) throws IOException, LoginException {
-    FileStatus fstatus = null;
-
-    // MR3 uses own resource dir, to prevent conflict between different execution engines.
-    String hdfsDirPathStr = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_MR3_JAR_DIR, (String)null);
-    if (hdfsDirPathStr != null) {
-      LOG.info("Hive jar directory is " + hdfsDirPathStr);
-      fstatus = validateTargetDir(new Path(hdfsDirPathStr), conf);
-    }
-
-    if (fstatus == null) {
-      Path destDir = getDefaultDestDir(conf);
-      LOG.info("Jar dir is null / directory doesn't exist. Choosing HIVE_INSTALL_DIR - " + destDir);
-      fstatus = validateTargetDir(destDir, conf);
-    }
-
-    if (fstatus == null) {
-      throw new IOException(ErrorMsg.NO_VALID_LOCATIONS.getMsg());
-    }
-    return fstatus;
   }
 
   @SuppressWarnings("deprecation")
@@ -1386,9 +1370,11 @@ public class DAGUtils {
       throw new IOException(e);
     }
 
+    // Cf. HIVE-21171
+    // in the case of Hive-MR3, we create mr3ScratchDir even though ConfVars.HIVE_RPC_QUERY_PLAN == true
     Path mr3ScratchDir = getMr3ScratchDir(new Path(scratchDir, userName));
     FileSystem fs = mr3ScratchDir.getFileSystem(conf);
-    LOG.debug("mr3ScratchDir path set " + mr3ScratchDir + " for user: " + userName);
+    LOG.info("mr3ScratchDir path set " + mr3ScratchDir + " for user: " + userName);
     fs.mkdirs(mr3ScratchDir, new FsPermission(SessionState.TASK_SCRATCH_DIR_PERMISSION));
 
     return mr3ScratchDir;

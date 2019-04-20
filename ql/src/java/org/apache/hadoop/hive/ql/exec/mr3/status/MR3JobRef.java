@@ -24,8 +24,6 @@ public interface MR3JobRef {
 
   String getJobId();
 
-  boolean cancelJob();
-
   int monitorJob();
 
   // Invariant: must be called after monitorJob() returns

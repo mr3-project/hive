@@ -57,6 +57,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MR3SessionImpl implements MR3Session {
 
@@ -113,7 +114,7 @@ public class MR3SessionImpl implements MR3Session {
 
       // getSessionInitJars() returns hive-exec.jar + HIVEAUXJARS
       List<LocalResource> hiveJarLocalResources =
-        dagUtils.localizeTempFiles(sessionScratchDir.toString(), conf, dagUtils.getSessionInitJars(conf));
+        dagUtils.localizeTempFiles(sessionScratchDir, conf, dagUtils.getSessionInitJars(conf));
       Map<String, LocalResource> additionalSessionLocalResources =
           dagUtils.convertLocalResourceListToMap(hiveJarLocalResources);
 
@@ -128,8 +129,7 @@ public class MR3SessionImpl implements MR3Session {
 
       // confLocalResource = specific to this MR3Session obtained from sessionConf
       // localizeTempFilesFromConf() updates sessionConf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
-      List<LocalResource> confLocalResources =
-        dagUtils.localizeTempFilesFromConf(sessionScratchDir.toString(), conf);
+      List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
 
       // We do not add confLocalResources to additionalSessionLocalResources because
       // dagUtils.localizeTempFilesFromConf() will be called each time a new DAG is submitted.
@@ -228,7 +228,9 @@ public class MR3SessionImpl implements MR3Session {
       Map<String, LocalResource> newAmLocalResources,
       Configuration mr3TaskConf,
       Map<String, BaseWork> workMap,
-      Context ctx, PerfLogger perfLogger) throws Exception {
+      Context ctx,
+      AtomicBoolean isShutdown,
+      PerfLogger perfLogger) throws Exception {
     perfLogger.PerfLogBegin(CLASS_NAME, PerfLogger.MR3_SUBMIT_DAG);
 
     // This code block is not really necessary and we could just read hiveMr3Client directly
@@ -256,7 +258,7 @@ public class MR3SessionImpl implements MR3Session {
     DAGAPI.DAGProto dagProto = dag.createDagProto(mr3TaskConf, dagConf);
 
     MR3JobRef mr3JobRef = currentHiveMr3Client.execute(
-        dagProto, addtlAmCredentials, addtlAmLocalResources, workMap, dag, ctx);
+        dagProto, addtlAmCredentials, addtlAmLocalResources, workMap, dag, ctx, isShutdown);
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_SUBMIT_DAG);
     return mr3JobRef; 

@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * MR3JobMonitor keeps track of an MR3 job while it's being executed. It will
@@ -97,6 +98,7 @@ public class MR3JobMonitor {
   private final HiveConf hiveConf;
   private final DAG dag;
   private final Context context;
+  private final AtomicBoolean isShutdown;
   private final UpdateFunction updateFunction;
   /**
    * Have to use the same instance to render else the number lines printed earlier is lost and the
@@ -109,13 +111,16 @@ public class MR3JobMonitor {
   private long lastPrintTime;
   private StringWriter diagnostics = new StringWriter();
 
-  public MR3JobMonitor(Map<String, BaseWork> workMap, final DAGClient dagClient, HiveConf conf, DAG dag,
-      Context ctx) {
+  public MR3JobMonitor(
+      Map<String, BaseWork> workMap, final DAGClient dagClient, HiveConf conf, DAG dag,
+      Context ctx,
+      AtomicBoolean isShutdown) {
     this.workMap = workMap;
     this.dagClient = dagClient;
     this.hiveConf = conf;
     this.dag = dag;
     this.context = ctx;
+    this.isShutdown = isShutdown;
     console = SessionState.getConsole();
     inPlaceUpdate = new InPlaceUpdate(LogHelper.getInfoStream());
     updateFunction = updateFunction();
@@ -167,6 +172,7 @@ public class MR3JobMonitor {
     DAGState$.Value lastState = null;
     String lastReport = null;
     boolean running = false;
+    boolean isShutdownCalled = false;
 
     while (true) {
       try {
@@ -174,49 +180,65 @@ public class MR3JobMonitor {
           context.checkHeartbeaterLockException();
         }
 
-        dagStatus = dagClient.getDagStatusWait(false, CHECK_INTERVAL).get();
-        DAGState$.Value state = dagStatus.state();
+        // assume tht isShutdown can be set to true at any time
+        if (!isShutdownCalled && isShutdown.get()) {
+          console.printInfo("Shutdown requested - calling DAGClient.tryKillDag()");
+          dagClient.tryKillDag();
+          isShutdownCalled = true;
+        }
 
-        if (state != lastState || state == DAGState$.MODULE$.Running()) {
-          lastState = state;
+        scala.Option<DAGStatus> dagStatusWait =
+            dagClient.getDagStatusWait(false, CHECK_INTERVAL);
+        if (dagStatusWait.isEmpty()) {
+          console.printError("DAG already killed and no longer found in DAGAppMaster");
+          running = false;
+          done = true;
+          rc = 1;
+        } else {
+          dagStatus = dagStatusWait.get();
+          DAGState$.Value state = dagStatus.state();
 
-          if (state == DAGState$.MODULE$.New()) {
-            console.printInfo("Status: New");
-            this.executionStartTime = System.currentTimeMillis();
-          } else if (state == DAGState$.MODULE$.Running()) {
-            if (!running) {
-              perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_SUBMIT_TO_RUNNING);
-              console.printInfo("Status: Running\n");
+          if (state != lastState || state == DAGState$.MODULE$.Running()) {
+            lastState = state;
+
+            if (state == DAGState$.MODULE$.New()) {
+              console.printInfo("Status: New");
               this.executionStartTime = System.currentTimeMillis();
-              running = true;
+            } else if (state == DAGState$.MODULE$.Running()) {
+              if (!running) {
+                perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_SUBMIT_TO_RUNNING);
+                console.printInfo("Status: Running\n");
+                this.executionStartTime = System.currentTimeMillis();
+                running = true;
+              }
+              lastReport = updateStatus(dagStatus, lastReport);
+            } else if (state == DAGState$.MODULE$.Succeeded()) {
+              if (!running) {
+                this.executionStartTime = monitorStartTime;
+              }
+              lastReport = updateStatus(dagStatus, lastReport);
+              success = true;
+              running = false;
+              done = true;
+            } else if (state == DAGState$.MODULE$.Killed()) {
+              if (!running) {
+                this.executionStartTime = monitorStartTime;
+              }
+              lastReport = updateStatus(dagStatus, lastReport);
+              console.printInfo("Status: Killed");
+              running = false;
+              done = true;
+              rc = 1;
+            } else if (state == DAGState$.MODULE$.Failed()) {
+              if (!running) {
+                this.executionStartTime = monitorStartTime;
+              }
+              lastReport = updateStatus(dagStatus, lastReport);
+              console.printError("Status: Failed");
+              running = false;
+              done = true;
+              rc = 2;
             }
-            lastReport = updateStatus(dagStatus, lastReport);
-          } else if (state == DAGState$.MODULE$.Succeeded()) {
-            if (!running) {
-              this.executionStartTime = monitorStartTime;
-            }
-            lastReport = updateStatus(dagStatus, lastReport);
-            success = true;
-            running = false;
-            done = true;
-          } else if (state == DAGState$.MODULE$.Killed()) {
-            if (!running) {
-              this.executionStartTime = monitorStartTime;
-            }
-            lastReport = updateStatus(dagStatus, lastReport);
-            console.printInfo("Status: Killed");
-            running = false;
-            done = true;
-            rc = 1;
-          } else if (state == DAGState$.MODULE$.Failed()) {
-            if (!running) {
-              this.executionStartTime = monitorStartTime;
-            }
-            lastReport = updateStatus(dagStatus, lastReport);
-            console.printError("Status: Failed");
-            running = false;
-            done = true;
-            rc = 2;
           }
         }
       } catch (Exception e) {

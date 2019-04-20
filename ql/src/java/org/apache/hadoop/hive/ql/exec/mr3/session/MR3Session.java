@@ -30,6 +30,7 @@ import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public interface MR3Session {
 
@@ -53,7 +54,9 @@ public interface MR3Session {
       Map<String, LocalResource> amLocalResources,
       Configuration conf,
       Map<String, BaseWork> workMap,
-      Context ctx, PerfLogger perfLogger) throws Exception;
+      Context ctx,
+      AtomicBoolean isShutdown,
+      PerfLogger perfLogger) throws Exception;
 
   /**
    * @return session id.

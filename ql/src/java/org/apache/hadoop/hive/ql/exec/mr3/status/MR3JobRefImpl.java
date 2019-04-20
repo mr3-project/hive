@@ -28,6 +28,7 @@ import edu.postech.mr3.api.client.DAGClient;
 import org.apache.tez.common.counters.TezCounters;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MR3JobRefImpl implements MR3JobRef {
 
@@ -39,21 +40,16 @@ public class MR3JobRefImpl implements MR3JobRef {
       DAGClient dagClient,
       Map<String, BaseWork> workMap,
       DAG dag,
-      Context ctx) {
+      Context ctx,
+      AtomicBoolean isShutdown) {
     this.dagClient = dagClient;
-    this.monitor = new MR3JobMonitor(workMap, dagClient, hiveConf, dag, ctx);
+    this.monitor = new MR3JobMonitor(workMap, dagClient, hiveConf, dag, ctx, isShutdown);
   }
 
   @Override
   public String getJobId() {
-    ApplicationReport applicationReport = dagClient.getApplicationReport().getOrElse(null);   // TODO: orNull
+    ApplicationReport applicationReport = dagClient.getApplicationReport().getOrElse(null); // == .orNull
     return applicationReport != null ? applicationReport.getApplicationId().toString(): "None";
-  }
-
-  @Override
-  public boolean cancelJob() {
-    // TODO
-    return true; 
   }
 
   @Override

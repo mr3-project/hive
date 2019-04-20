@@ -28,6 +28,7 @@ import edu.postech.mr3.DAGAPI;
 import edu.postech.mr3.api.common.MR3Conf;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public interface HiveMR3Client {
   
@@ -47,7 +48,8 @@ public interface HiveMR3Client {
       Map<String, LocalResource> amLocalResources,
       Map<String, BaseWork> workMap,
       DAG dag,
-      Context ctx) throws Exception;
+      Context ctx,
+      AtomicBoolean isShutdown) throws Exception;
 
   /**
    * @return MR3 client state

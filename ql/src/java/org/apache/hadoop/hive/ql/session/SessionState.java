@@ -241,8 +241,6 @@ public class SessionState {
 
   private Map<String, List<String>> localMapRedErrors;
 
-  private TezSessionState tezSessionState;
-
   private String currentDatabase;
 
   private String currentCatalog;
@@ -621,10 +619,6 @@ public class SessionState {
 
   public static void endStart(SessionState startSs)
       throws CancellationException, InterruptedException {
-    if (startSs.tezSessionState == null) {
-      return;
-    }
-    startSs.tezSessionState.endOpen();
   }
 
   private static void start(SessionState startSs, boolean isAsync, LogHelper console) {
@@ -677,41 +671,7 @@ public class SessionState {
       throw new RuntimeException(e);
     }
 
-    String engine = HiveConf.getVar(startSs.getConf(), HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if (!engine.equals("tez") || startSs.isHiveServerQuery) {
-      return;
-    }
-
-    //
-    // if engine == mr3, take no action
-    //
-
-    try {
-      if (startSs.tezSessionState == null) {
-        startSs.setTezSession(new TezSessionState(startSs.getSessionId(), startSs.sessionConf));
-      } else {
-        // Only TezTask sets this, and then removes when done, so we don't expect to see it.
-        LOG.warn("Tez session was already present in SessionState before start: "
-            + startSs.tezSessionState);
-      }
-      if (startSs.tezSessionState.isOpen()) {
-        return;
-      }
-      if (startSs.tezSessionState.isOpening()) {
-        if (!isAsync) {
-          startSs.tezSessionState.endOpen();
-        }
-        return;
-      }
-      // Neither open nor opening.
-      if (!isAsync) {
-        startSs.tezSessionState.open();
-      } else {
-        startSs.tezSessionState.beginOpen(null, console);
-      }
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
+    // no further action
   }
 
   /**
@@ -1801,16 +1761,6 @@ public class SessionState {
       detachSession();
     }
 
-    try {
-      if (tezSessionState != null) {
-        TezSessionPoolManager.closeIfNotDefault(tezSessionState, false);
-      }
-    } catch (Exception e) {
-      LOG.info("Error closing tez session", e);
-    } finally {
-      setTezSession(null);
-    }
-
     if (mr3Session != null) {
       try {
         MR3SessionManager mr3SessionManager = MR3SessionManagerImpl.getInstance();
@@ -1915,24 +1865,12 @@ public class SessionState {
   }
 
   public TezSessionState getTezSession() {
-    return tezSessionState;
+    // tezSessionState is never used
+    return null;
   }
 
-  /** Called from TezTask to attach a TezSession to use to the threadlocal. Ugly pattern... */
   public void setTezSession(TezSessionState session) {
-    if (tezSessionState == session) {
-      return; // The same object.
-    }
-    if (tezSessionState != null) {
-      tezSessionState.markFree();
-      tezSessionState.setKillQuery(null);
-      tezSessionState = null;
-    }
-    tezSessionState = session;
-    if (session != null) {
-      session.markInUse();
-      tezSessionState.setKillQuery(getKillQuery());
-    }
+    // tezSessionState is never used
   }
 
   public String getUserName() {

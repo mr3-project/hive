@@ -61,8 +61,6 @@ import org.apache.hadoop.hive.common.ZKDeRegisterWatcher;
 import org.apache.hadoop.hive.common.ZooKeeperHiveHelper;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
-import org.apache.hadoop.hive.llap.coordinator.LlapCoordinator;
-import org.apache.hadoop.hive.llap.registry.impl.LlapRegistryService;
 import org.apache.hadoop.hive.metastore.api.WMFullResourcePlan;
 import org.apache.hadoop.hive.metastore.api.WMPool;
 import org.apache.hadoop.hive.metastore.api.WMResourcePlan;
@@ -70,10 +68,6 @@ import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.ql.cache.results.QueryResultsCache;
 import org.apache.hadoop.hive.ql.exec.mr3.session.MR3SessionManagerImpl;
 import org.apache.hadoop.hive.ql.exec.spark.session.SparkSessionManagerImpl;
-import org.apache.hadoop.hive.ql.exec.tez.TezSessionPoolManager;
-import org.apache.hadoop.hive.ql.exec.tez.WorkloadManager;
-import org.apache.hadoop.hive.ql.metadata.Hive;
-import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.HiveMaterializedViewsRegistry;
 import org.apache.hadoop.hive.ql.metadata.HiveUtils;
 import org.apache.hadoop.hive.ql.metadata.events.NotificationEventPoll;
@@ -141,8 +135,6 @@ public class HiveServer2 extends CompositeService {
   private ThriftCLIService thriftCLIService;
   private CuratorFramework zKClientForPrivSync = null;
   private HttpServer webServer; // Web UI
-  private TezSessionPoolManager tezSessionPoolManager;
-  private WorkloadManager wm;
   private PamAuthenticator pamAuthenticator;
   private Map<String, String> confsToPublish = new HashMap<String, String>();
   private String serviceUri;
@@ -151,8 +143,6 @@ public class HiveServer2 extends CompositeService {
   private LeaderLatchListener leaderLatchListener;
   private ExecutorService leaderActionsExecutorService;
   private HS2ActivePassiveHARegistry hs2HARegistry;
-  private Hive sessionHive;
-  private String wmQueue;
   private AtomicBoolean isLeader = new AtomicBoolean(false);
   // used for testing
   private SettableFuture<Boolean> isLeaderTestFuture = SettableFuture.create();
@@ -228,29 +218,9 @@ public class HiveServer2 extends CompositeService {
     } catch (Throwable t) {
       throw new Error("Unable to initialize HiveServer2", t);
     }
-    if (HiveConf.getBoolVar(hiveConf, ConfVars.LLAP_HS2_ENABLE_COORDINATOR)) {
-      // See method comment.
-      try {
-        LlapCoordinator.initializeInstance(hiveConf);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }
-    // Trigger the creation of LLAP registry client, if in use. Clients may be using a different
-    // cluster than the default one, but at least for the default case we'd have it covered.
-    String llapHosts = HiveConf.getVar(hiveConf, HiveConf.ConfVars.LLAP_DAEMON_SERVICE_HOSTS);
-    if (llapHosts != null && !llapHosts.isEmpty()) {
-      LlapRegistryService.getClient(hiveConf);
-    }
 
     // Initialize metadata provider class
     CalcitePlanner.initializeMetadataProviderClass();
-
-    try {
-      sessionHive = Hive.get(hiveConf);
-    } catch (HiveException e) {
-      throw new RuntimeException("Failed to get metastore connection", e);
-    }
 
     // Create views registry
     HiveMaterializedViewsRegistry.get().init();
@@ -271,8 +241,6 @@ public class HiveServer2 extends CompositeService {
     } catch (Exception err) {
       throw new RuntimeException("Error initializing notification event poll", err);
     }
-
-    wmQueue = hiveConf.get(ConfVars.HIVE_SERVER2_TEZ_INTERACTIVE_QUEUE.varname, "").trim();
 
     this.serviceDiscovery = hiveConf.getBoolVar(ConfVars.HIVE_SERVER2_SUPPORT_DYNAMIC_SERVICE_DISCOVERY);
     this.activePassiveHA = hiveConf.getBoolVar(ConfVars.HIVE_SERVER2_ACTIVE_PASSIVE_HA_ENABLE);
@@ -668,17 +636,12 @@ public class HiveServer2 extends CompositeService {
       }
     }
 
-    if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")) {
+    if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
       if (!activePassiveHA) {
-        LOG.info("HS2 interactive HA not enabled. Starting tez sessions..");
-        try {
-          startOrReconnectTezSessions();
-        } catch (Exception e) {
-          LOG.error("Error starting  Tez sessions: ", e);
-          throw new ServiceException(e);
-        }
+        LOG.info("HS2 interactive HA not enabled. Starting sessions..");
+        // TODO: add actions if necessary for MR3
       } else {
-        LOG.info("HS2 interactive HA enabled. Tez sessions will be started/reconnected by the leader.");
+        LOG.info("HS2 interactive HA enabled. Sessions will be started/reconnected by the leader.");
       }
     }
   }
@@ -703,8 +666,7 @@ public class HiveServer2 extends CompositeService {
       if (parentSession != null) {
         SessionState.setCurrentSessionState(parentSession);
       }
-      hiveServer2.startOrReconnectTezSessions();
-      LOG.info("Started/Reconnected tez sessions.");
+      // TODO: add actions if necessary for MR3
       hiveServer2.allowClientSessions();
 
       // resolve futures used for testing
@@ -719,8 +681,7 @@ public class HiveServer2 extends CompositeService {
       LOG.info("HS2 instance {} LOST LEADERSHIP. Stopping/Disconnecting tez sessions..", hiveServer2.serviceUri);
       hiveServer2.isLeader.set(false);
       hiveServer2.closeAndDisallowHiveSessions();
-      hiveServer2.stopOrDisconnectTezSessions();
-      LOG.info("Stopped/Disconnected tez sessions.");
+      // TODO: add actions if necessary for MR3
 
       // resolve futures used for testing
       if (HiveConf.getBoolVar(hiveServer2.getHiveConf(), ConfVars.HIVE_IN_TEST)) {
@@ -730,70 +691,8 @@ public class HiveServer2 extends CompositeService {
     }
   }
 
-  private void startOrReconnectTezSessions() {
-    LOG.info("Starting/Reconnecting tez sessions..");
-    // TODO: add tez session reconnect after TEZ-3875
-    WMFullResourcePlan resourcePlan;
-    try {
-      resourcePlan = sessionHive.getActiveResourcePlan();
-    } catch (HiveException e) {
-      if (!HiveConf.getBoolVar(getHiveConf(), ConfVars.HIVE_IN_TEST_SSL)) {
-        throw new RuntimeException(e);
-      } else {
-        resourcePlan = null; // Ignore errors in SSL tests where the connection is misconfigured.
-      }
-    }
-
-    if (resourcePlan == null && HiveConf.getBoolVar(
-      getHiveConf(), ConfVars.HIVE_IN_TEST)) {
-      LOG.info("Creating a default resource plan for test");
-      resourcePlan = createTestResourcePlan();
-    }
-    initAndStartTezSessionPoolManager(resourcePlan);
-    initAndStartWorkloadManager(resourcePlan);
-  }
-
   private void allowClientSessions() {
     cliService.getSessionManager().allowSessions(true);
-  }
-
-  private void initAndStartTezSessionPoolManager(final WMFullResourcePlan resourcePlan) {
-    // starting Tez session pool in start here to let parent session state initialize on CliService state, to avoid
-    // SessionState.get() return null during createTezDir
-    try {
-      // will be invoked anyway in TezTask. Doing it early to initialize triggers for non-pool tez session.
-      LOG.info("Initializing tez session pool manager. Active resource plan: {}",
-        resourcePlan == null || resourcePlan.getPlan() == null ? "null" : resourcePlan.getPlan().getName());
-      tezSessionPoolManager = TezSessionPoolManager.getInstance();
-      HiveConf hiveConf = getHiveConf();
-      if (hiveConf.getBoolVar(ConfVars.HIVE_SERVER2_TEZ_INITIALIZE_DEFAULT_SESSIONS)) {
-        tezSessionPoolManager.setupPool(hiveConf);
-      } else {
-        tezSessionPoolManager.setupNonPool(hiveConf);
-      }
-      tezSessionPoolManager.startPool(hiveConf, resourcePlan);
-      LOG.info("Tez session pool manager initialized.");
-    } catch (Exception e) {
-      throw new ServiceException("Unable to setup tez session pool", e);
-    }
-  }
-
-  private void initAndStartWorkloadManager(final WMFullResourcePlan resourcePlan) {
-    if (!StringUtils.isEmpty(wmQueue)) {
-      // Initialize workload management.
-      LOG.info("Initializing workload management. Active resource plan: {}",
-        resourcePlan == null || resourcePlan.getPlan() == null ? "null" : resourcePlan.getPlan().getName());
-      try {
-        wm = WorkloadManager.create(wmQueue, getHiveConf(), resourcePlan);
-        wm.start();
-        LOG.info("Workload manager initialized.");
-      } catch (Exception e) {
-        throw new ServiceException("Unable to instantiate and start Workload Manager", e);
-      }
-    } else {
-      LOG.info("Workload management is not enabled as {} config is not set",
-        ConfVars.HIVE_SERVER2_TEZ_INTERACTIVE_QUEUE.varname);
-    }
   }
 
   private void closeAndDisallowHiveSessions() {
@@ -808,28 +707,6 @@ public class HiveServer2 extends CompositeService {
       LOG.info("Closed all open hive sessions");
     } catch (HiveSQLException e) {
       LOG.error("Unable to close all open sessions.", e);
-    }
-  }
-
-  private void stopOrDisconnectTezSessions() {
-    LOG.info("Stopping/Disconnecting tez sessions.");
-    // There should already be an instance of the session pool manager.
-    // If not, ignoring is fine while stopping HiveServer2.
-    if (tezSessionPoolManager != null) {
-      try {
-        tezSessionPoolManager.stop();
-        LOG.info("Stopped tez session pool manager.");
-      } catch (Exception e) {
-        LOG.error("Error while stopping tez session pool manager.", e);
-      }
-    }
-    if (wm != null) {
-      try {
-        wm.stop();
-        LOG.info("Stopped workload manager.");
-      } catch (Exception e) {
-        LOG.error("Error while stopping workload manager.", e);
-      }
     }
   }
 
@@ -871,8 +748,6 @@ public class HiveServer2 extends CompositeService {
         LOG.error("Error removing znode for this HiveServer2 instance from ZooKeeper.", e);
       }
     }
-
-    stopOrDisconnectTezSessions();
 
     if (hiveConf != null && hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("spark")) {
       try {

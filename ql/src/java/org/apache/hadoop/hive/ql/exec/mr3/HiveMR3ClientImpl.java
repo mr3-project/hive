@@ -42,6 +42,7 @@ import org.apache.tez.dag.api.TezConfiguration;
 import scala.Option;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HiveMR3ClientImpl implements HiveMR3Client {
   protected static final Log LOG = LogFactory.getLog(HiveMR3ClientImpl.class);
@@ -92,11 +93,12 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
       final Map<String, LocalResource> amLocalResources,
       final Map<String, BaseWork> workMap,
       final DAG dag,
-      final Context ctx) throws Exception {
+      final Context ctx,
+      AtomicBoolean isShutdown) throws Exception {
 
     scala.collection.immutable.Map addtlAmLrs = MR3Utils.toScalaMap(amLocalResources);
     DAGClient dagClient = mr3Client.submitDag(addtlAmLrs, Option.apply(amCredentials), dagProto);
-    return new MR3JobRefImpl(hiveConf, dagClient, workMap, dag, ctx);
+    return new MR3JobRefImpl(hiveConf, dagClient, workMap, dag, ctx, isShutdown);
   }
 
   @Override

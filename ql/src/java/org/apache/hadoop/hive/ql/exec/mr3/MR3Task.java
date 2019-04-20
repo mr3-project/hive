@@ -68,6 +68,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * MR3Task handles the execution of TezWork. 
@@ -79,16 +80,18 @@ public class MR3Task {
   private final PerfLogger perfLogger = SessionState.getPerfLogger();
   private static final Log LOG = LogFactory.getLog(MR3Task.class);
 
-  private HiveConf conf;
-  private SessionState.LogHelper console;
+  private final HiveConf conf;
+  private final SessionState.LogHelper console;
+  private final AtomicBoolean isShutdown;
   private final DAGUtils dagUtils;
 
   private TezCounters counters;
   private Throwable exception;
 
-  public MR3Task(HiveConf conf, SessionState.LogHelper console) {
+  public MR3Task(HiveConf conf, SessionState.LogHelper console, AtomicBoolean isShutdown) {
     this.conf = conf;
     this.console = console;
+    this.isShutdown = isShutdown;
     this.dagUtils = DAGUtils.getInstance();
     this.exception = null;
   }
@@ -136,8 +139,7 @@ public class MR3Task {
       // confLocalResource = specific to this MR3Task obtained from conf
       // localizeTempFilesFromConf() updates conf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
       // Note that we should not copy to mr3ScratchDir in order to avoid redundant localization.
-      List<LocalResource> confLocalResources =
-        dagUtils.localizeTempFilesFromConf(sessionScratchDir.toString(), conf);
+      List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
 
       // 2. compute amDagCommonLocalResources
       Map<String, LocalResource> amDagCommonLocalResources =
@@ -147,9 +149,15 @@ public class MR3Task {
       DAG dag = buildDag(jobConf, tezWork, mr3ScratchDir, context, amDagCommonLocalResources);
       console.printInfo("Finished building DAG, now submitting: " + tezWork.getName());
 
+      if (this.isShutdown.get()) {
+        throw new HiveException("Operation cancelled before submit()");
+      }
+
       // 4. submit and monitor
-      mr3JobRef = mr3Session.submit(dag, amDagCommonLocalResources, conf, tezWork.getWorkMap(), context, perfLogger);
-      // do not change the output string below which is used to extract application ID by mr3-run/hive 
+      mr3JobRef = mr3Session.submit(
+          dag, amDagCommonLocalResources, conf, tezWork.getWorkMap(), context, isShutdown, perfLogger);
+
+      // do not change the output string below which is used to extract application ID by mr3-run/hive
       console.printInfo(
           "Status: Running (Executing on MR3 DAGAppMaster with App id " + mr3JobRef.getJobId() + ")");
       returnCode = mr3JobRef.monitorJob();
@@ -183,7 +191,7 @@ public class MR3Task {
         dagUtils.cleanMr3Dir(mr3ScratchDir, conf);
       }
 
-      //We know the job has been submitted, should try and close work
+      // We know the job has been submitted, should try and close work
       if (mr3JobRef != null) {
         // returnCode will only be overwritten if close errors out
         returnCode = close(tezWork, returnCode);
@@ -232,8 +240,7 @@ public class MR3Task {
    */
   private Map<String, LocalResource> getDagLocalResources(
       String[] dagJars, Path scratchDir, JobConf jobConf) throws Exception {
-    List<LocalResource> localResources = dagUtils.localizeTempFiles(
-        scratchDir.toString(), jobConf, dagJars);
+    List<LocalResource> localResources = dagUtils.localizeTempFiles(scratchDir, jobConf, dagJars);
 
     Map<String, LocalResource> resources = dagUtils.convertLocalResourceListToMap(localResources);
     checkInputOutputLocalResources(resources);
