@@ -403,8 +403,8 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
     newKeys = keyWrapperFactory.getKeyWrapper();
     String engine = HiveConf.getVar(hconf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
     isMr3 = engine.equals("mr3");
-    numExecutors =
-        isMr3 ? this.getConf().getEstimateNumExecutors() : 1;
+    // getConf().getEstimateNumExecutors() works okay because we are in ContainerWorker
+    numExecutors = isMr3 ? this.getConf().getEstimateNumExecutors() : 1;
     firstRow = true;
     // estimate the number of hash table entries based on the size of each
     // entry. Since the size of a entry

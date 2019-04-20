@@ -4779,6 +4779,13 @@ public class HiveConf extends Configuration {
     HIVE_SERVER2_MR3_SHARE_SESSION("hive.server2.mr3.share.session", false,
         "Use a common MR3Session to be shared by all HiveSessions"),
 
+    // runtime
+    MR3_MAPJOIN_INTERRUPT_CHECK_INTERVAL("hive.mr3.mapjoin.interrupt.check.interval", 100000L,
+        "Interval at which HashTableLoader checks the interrupt state"),
+    // TODO: should be computed at runtime and passed to ContainerWorkers
+    MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS("hive.mr3.bucket.mapjoin.estimate.num.containers", 10,
+        "Estimate number of nodes for converting to bucket mapjoin"),
+
     // Kubernetes
     HIVE_MR3_LOCALIZE_SESSION_JARS("hive.mr3.localize.session.jars", true,
         "Localize session jars");
