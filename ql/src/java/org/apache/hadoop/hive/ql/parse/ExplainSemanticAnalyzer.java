@@ -204,10 +204,7 @@ public class ExplainSemanticAnalyzer extends BaseSemanticAnalyzer {
              (
                HiveConf.getBoolVar(ctx.getConf(), HiveConf.ConfVars.HIVE_EXPLAIN_USER)
                &&
-               (
-               HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3") ||
-               HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")
-               )
+               HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")
              )
              ||
              (

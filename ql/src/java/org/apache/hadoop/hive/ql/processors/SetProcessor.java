@@ -375,7 +375,7 @@ public class SetProcessor implements CommandProcessor {
     if (nwcmd.equals("-v")) {
       Properties properties = null;
       String engine = ss.getConf().getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-      if (engine.equals("tez") || engine.equals("mr3")) {
+      if (engine.equals("mr3")) {
         Class<?> clazz;
         try {
           clazz = Class.forName("org.apache.tez.dag.api.TezConfiguration");

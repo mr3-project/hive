@@ -712,9 +712,6 @@ public abstract class ThriftCLIService extends AbstractService implements TCLISe
       }
       JobProgressUpdate progressUpdate = operationStatus.jobProgressUpdate();
       ProgressMonitorStatusMapper mapper = ProgressMonitorStatusMapper.DEFAULT;
-      if ("tez".equals(hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE))) {
-        mapper = new TezProgressMonitorStatusMapper();
-      }
       if ("mr3".equals(hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE))) {
         mapper = new MR3ProgressMonitorStatusMapper();
       }

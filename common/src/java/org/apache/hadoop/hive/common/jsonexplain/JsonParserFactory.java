@@ -33,8 +33,7 @@ public class JsonParserFactory {
    * @return the appropriate JsonParser to print a JSONObject into outputStream.
    */
   public static JsonParser getParser(HiveConf conf) {
-    if (HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")
-        || HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+    if (HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
       return new TezJsonParser();
     }
     if (HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("spark")) {

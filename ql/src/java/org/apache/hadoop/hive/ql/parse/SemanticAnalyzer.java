@@ -1143,7 +1143,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
   private void assertCombineInputFormat(Tree numerator, String message) throws SemanticException {
     String engine = conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
     String inputFormat =
-        (engine.equals("mr3") || engine.equals("tez")) ?
+        engine.equals("mr3") ?
         HiveConf.getVar(conf, HiveConf.ConfVars.HIVETEZINPUTFORMAT):
         HiveConf.getVar(conf, HiveConf.ConfVars.HIVEINPUTFORMAT);
     if (!inputFormat.equals(CombineHiveInputFormat.class.getName())) {
@@ -9438,7 +9438,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
         // the user has specified to ignore mapjoin hint
         String engine = conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
         if (!conf.getBoolVar(HiveConf.ConfVars.HIVEIGNOREMAPJOINHINT)
-            && !engine.equals("mr3") && !engine.equals("tez")) {
+            && !engine.equals("mr3")) {
           ASTNode hintTblNames = (ASTNode) hint.getChild(1);
           int numCh = hintTblNames.getChildCount();
           for (int tblPos = 0; tblPos < numCh; tblPos++) {
@@ -9560,8 +9560,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
 
     String engine = conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
     if ((qb.getParseInfo().getHints() != null)
-        && !engine.equals("mr3")
-        && !engine.equals("tez")) {
+        && !engine.equals("mr3")) {
       LOG.info("STREAMTABLE hint honored.");
       parseStreamTables(joinTree, qb);
     }
@@ -9860,8 +9859,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
 
       joinTree.setMapAliases(mapAliases);
 
-      if (!conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")
-          && !conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      if (!conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
         parseStreamTables(joinTree, qb);
       }
     }

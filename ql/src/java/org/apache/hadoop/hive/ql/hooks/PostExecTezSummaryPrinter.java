@@ -45,8 +45,7 @@ public class PostExecTezSummaryPrinter implements ExecuteWithHookContext {
     assert (hookContext.getHookType() == HookContext.HookType.POST_EXEC_HOOK);
     HiveConf conf = hookContext.getConf();
     String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if (!"tez".equals(engine) &&
-        !"mr3".equals(engine)) {
+    if (!"mr3".equals(engine)) {
       return;
     }
 

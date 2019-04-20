@@ -52,6 +52,7 @@ public class TezTask extends Task<TezWork> {
   private TezCounters counters;
 
   public TezTask() {
+    super();
   }
 
   public TezCounters getTezCounters() {

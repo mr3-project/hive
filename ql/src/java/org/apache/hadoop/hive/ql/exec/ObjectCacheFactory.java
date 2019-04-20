@@ -81,33 +81,10 @@ public class ObjectCacheFactory {
           return getLlapQueryVertexCache(queryId, vertexIndex);
         }
       }
-    } else if (engine.equals("tez")) {
-      if (LlapProxy.isDaemon()) { // daemon
-        if (isLlapCacheEnabled(conf, isPlanCache, llapCacheAlwaysEnabled)) {
-          // LLAP object cache, unlike others, does not use globals. Thus, get the existing one.
-          return getLlapObjectCache(queryId);
-        } else { // no cache
-          return new ObjectCacheWrapper(
-              new org.apache.hadoop.hive.ql.exec.mr.ObjectCache(), queryId);
-        }
-      } else { // container
-        if (org.apache.hadoop.hive.ql.exec.tez.ObjectCache.isObjectRegistryConfigured()) {
-          return new ObjectCacheWrapper(
-              new org.apache.hadoop.hive.ql.exec.tez.ObjectCache(), queryId);
-        } else {
-          // Tez processor needs to configure object registry first.
-          return null;
-        }
-      }
     } else { // mr or spark
       return new ObjectCacheWrapper(
           new  org.apache.hadoop.hive.ql.exec.mr.ObjectCache(), queryId);
     }
-  }
-
-  private static boolean isLlapCacheEnabled(Configuration conf, boolean isPlanCache, boolean llapCacheAlwaysEnabled) {
-    return (llapCacheAlwaysEnabled ||
-        (HiveConf.getBoolVar(conf, HiveConf.ConfVars.LLAP_OBJECT_CACHE_ENABLED) && !isPlanCache));
   }
 
   private static ObjectCache getLlapObjectCache(String queryId) {

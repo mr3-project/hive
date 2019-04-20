@@ -1342,7 +1342,7 @@ public final class GenMapRedUtils {
       cplan = GenMapRedUtils.createMergeTask(fsInputDesc, finalName,
           dpCtx != null && dpCtx.getNumDPCols() > 0, fsInput.getCompilationOpContext());
       String engine = conf.getVar(ConfVars.HIVE_EXECUTION_ENGINE); 	   
-      if (engine.equals("tez") || engine.equals("mr3")) {
+      if (engine.equals("mr3")) {
         work = new TezWork(conf.getVar(HiveConf.ConfVars.HIVEQUERYID), conf);
         cplan.setName("File Merge");
         ((TezWork) work).add(cplan);
@@ -1356,7 +1356,7 @@ public final class GenMapRedUtils {
     } else {
       cplan = createMRWorkForMergingFiles(conf, tsMerge, fsInputDesc);
       String engine = conf.getVar(ConfVars.HIVE_EXECUTION_ENGINE);
-      if (engine.equals("tez") || engine.equals("mr3")) {
+      if (engine.equals("mr3")) {
         work = new TezWork(conf.getVar(HiveConf.ConfVars.HIVEQUERYID), conf);
         cplan.setName("File Merge");
         ((TezWork)work).add(cplan);

@@ -40,8 +40,7 @@ public class PostExecWMEventsSummaryPrinter implements ExecuteWithHookContext {
       hookContext.getHookType() == HookContext.HookType.ON_FAILURE_HOOK);
     HiveConf conf = hookContext.getConf();
     String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if (!"tez".equals(engine) && 
-        !"mr3".equals(engine)) {
+    if (!"mr3".equals(engine)) {
       return;
     }
 

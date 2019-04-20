@@ -140,7 +140,7 @@ public class HiveDefaultRelMetadataProvider {
   private RelMetadataProvider init(HiveConf hiveConf) {
     // Create cost metadata provider
     String engine = HiveConf.getVar(hiveConf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if ((engine.equals("tez") || engine.equals("mr3"))
+    if (engine.equals("mr3")
         && HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_CBO_EXTENDED_COST_MODEL)) {
       // Get max split size for HiveRelMdParallelism
       final Double maxSplitSize = (double) HiveConf.getLongVar(

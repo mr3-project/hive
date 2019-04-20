@@ -42,7 +42,7 @@ public class PostExecOrcRowGroupCountPrinter implements ExecuteWithHookContext {
     assert (hookContext.getHookType() == HookContext.HookType.POST_EXEC_HOOK);
     HiveConf conf = hookContext.getConf();
     String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if (!"tez".equals(engine)) {	// ignore for MR3 as well 
+    if (!"mr3".equals(engine)) {
       return;
     }
 

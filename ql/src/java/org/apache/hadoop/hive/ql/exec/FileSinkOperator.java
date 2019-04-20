@@ -1261,9 +1261,7 @@ public class FileSinkOperator extends TerminalOperator<FileSinkDesc> implements
 
     if (!bDynParts && !filesCreated) {
       String engine = HiveConf.getVar(hconf, ConfVars.HIVE_EXECUTION_ENGINE);
-      boolean skipFiles =
-          "tez".equalsIgnoreCase(engine) ||
-          "mr3".equalsIgnoreCase(engine);
+      boolean skipFiles = "mr3".equalsIgnoreCase(engine);
       if (skipFiles) {
         Class<?> clazz = conf.getTableInfo().getOutputFileFormatClass();
         skipFiles = !StreamingOutputFormat.class.isAssignableFrom(clazz);

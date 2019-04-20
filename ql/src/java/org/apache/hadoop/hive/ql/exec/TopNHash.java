@@ -105,24 +105,11 @@ public class TopNHash {
       return; // topN == 0 will cause a short-circuit, don't need any initialization
     }
 
-    final boolean isTez = HiveConf.getVar(hconf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("tez");
-
-    long totalFreeMemory;
-    if (isTez) {
-      final boolean isLlap = LlapDaemonInfo.INSTANCE.isLlap();
-      final int numExecutors = isLlap ? LlapDaemonInfo.INSTANCE.getNumExecutors() : 1;
-      MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
-      // TODO: For LLAP, assumption is off-heap cache.
-      final long memoryUsedPerExecutor = (memoryMXBean.getHeapMemoryUsage().getUsed() / numExecutors);
-      // this is total free memory available per executor in case of LLAP
-      totalFreeMemory = conf.getMaxMemoryAvailable() - memoryUsedPerExecutor;
-    } else {
-      // In MR3, we ignore conf.getMaxMemoryAvailable() because any TaskAttempt can use free memory.
-      // Used Memory = totalMemory() - freeMemory();
-      // Total Free Memory = maxMemory() - Used Memory;
-      totalFreeMemory = Runtime.getRuntime().maxMemory() -
-          Runtime.getRuntime().totalMemory() + Runtime.getRuntime().freeMemory();
-    }
+    // In MR3, we ignore conf.getMaxMemoryAvailable() because any TaskAttempt can use free memory.
+    // Used Memory = totalMemory() - freeMemory();
+    // Total Free Memory = maxMemory() - Used Memory;
+    long totalFreeMemory = Runtime.getRuntime().maxMemory() -
+        Runtime.getRuntime().totalMemory() + Runtime.getRuntime().freeMemory();
     LOG.info("TopNHash totalFreeMemory = " + totalFreeMemory);
 
     // limit * 64 : compensation of arrays for key/value/hashcodes

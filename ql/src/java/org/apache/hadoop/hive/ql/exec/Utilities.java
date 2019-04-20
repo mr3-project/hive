@@ -1483,11 +1483,11 @@ public final class Utilities {
 
   public static boolean shouldAvoidRename(FileSinkDesc conf, Configuration hConf) {
     // we are avoiding rename/move only if following conditions are met
-    //  * execution engine is tez
+    //  * execution engine is MR3
     //  * query cache is disabled
     //  * if it is select query
     if (conf != null && conf.getIsQuery() && conf.getFilesToFetch() != null
-        && HiveConf.getVar(hConf, ConfVars.HIVE_EXECUTION_ENGINE).equalsIgnoreCase("tez")){
+        && HiveConf.getVar(hConf, ConfVars.HIVE_EXECUTION_ENGINE).equalsIgnoreCase("mr3")){
       return true;
     }
     return false;
@@ -1778,7 +1778,6 @@ public final class Utilities {
       int numBuckets, Configuration hconf, List<Path> result) {
     String engine = hconf.get(ConfVars.HIVE_EXECUTION_ENGINE.varname);
     if (MapUtils.isNotEmpty(taskIDToFile) && (numBuckets > taskIDToFile.size())
-        && !"tez".equalsIgnoreCase(engine)
         && !"mr3".equalsIgnoreCase(engine)) {
         addBucketsToResultsCommon(taskIDToFile, numBuckets, result);
     }
@@ -1790,7 +1789,6 @@ public final class Utilities {
     // if the table is bucketed and enforce bucketing, we should check and generate all buckets
     String engine = hconf.get(ConfVars.HIVE_EXECUTION_ENGINE.varname);
     if (numBuckets > 0 && taskIDToFile != null
-        && !"tez".equalsIgnoreCase(engine)
         && !"mr3".equalsIgnoreCase(engine)) {
       addBucketsToResultsCommon(taskIDToFile, numBuckets, result);
     }
@@ -3660,7 +3658,7 @@ public final class Utilities {
   public static void setInputAttributes(Configuration conf, MapWork mWork) {
     String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
     HiveConf.ConfVars var =
-      (engine.equals("mr3") || engine.equals("tez")) ?
+      engine.equals("mr3") ?
       HiveConf.ConfVars.HIVETEZINPUTFORMAT : HiveConf.ConfVars.HIVEINPUTFORMAT;
     if (mWork.getInputformat() != null) {
       HiveConf.setVar(conf, var, mWork.getInputformat());

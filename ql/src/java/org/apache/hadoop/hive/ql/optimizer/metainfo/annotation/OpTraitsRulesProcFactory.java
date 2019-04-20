@@ -176,7 +176,7 @@ public class OpTraitsRulesProcFactory {
 
       // Tez can handle unpopulated buckets
       String engine = HiveConf.getVar(pGraphContext.getConf(), HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-      if (!engine.equals("tez") && !engine.equals("mr3")) {
+      if (!engine.equals("mr3")) {
         if (tbl.isPartitioned()) {
           List<Partition> partitions = prunedParts.getNotDeniedPartns();
           // construct a mapping of (Partition->bucket file names) and (Partition -> bucket number)

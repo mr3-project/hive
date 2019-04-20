@@ -37,7 +37,7 @@ public class TaskCompilerFactory {
    */
   public static TaskCompiler getCompiler(HiveConf conf, ParseContext parseContext) {
     String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    if (engine.equals("tez") || engine.equals("mr3")) {
+    if (engine.equals("mr3")) {
       return new TezCompiler();
     } else if (engine.equals("spark")) {
       return new SparkCompiler();

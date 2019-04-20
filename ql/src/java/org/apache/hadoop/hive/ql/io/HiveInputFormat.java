@@ -426,7 +426,7 @@ public class HiveInputFormat<K extends WritableComparable, V extends Writable>
   protected void init(JobConf job) {
     if (mrwork == null || pathToPartitionInfo == null) {
       String engine = HiveConf.getVar(job, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-      if (engine.equals("mr3") || engine.equals("tez")) {
+      if (engine.equals("mr3")) {
         mrwork = (MapWork) Utilities.getMergeWork(job);
         if (mrwork == null) {
           mrwork = Utilities.getMapWork(job);
@@ -647,7 +647,7 @@ public class HiveInputFormat<K extends WritableComparable, V extends Writable>
       if (dirs.length == 0) {
         // on tez we're avoiding to duplicate the file info in FileInputFormat.
         String engine = HiveConf.getVar(job, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-        if (engine.equals("mr3") || engine.equals("tez")) {
+        if (engine.equals("mr3")) {
           try {
             List<Path> paths = Utilities.getInputPathsTez(job, mrwork);
             dirs = paths.toArray(new Path[paths.size()]);

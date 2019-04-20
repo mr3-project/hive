@@ -150,9 +150,7 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
   private transient int countAfterReport;   // report or forward
   private transient int heartbeatInterval;
 
-  private transient boolean isTez;
   private transient boolean isMr3;
-  private transient boolean isLlap;
   private transient int numExecutors;
 
   /**
@@ -404,11 +402,9 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
 
     newKeys = keyWrapperFactory.getKeyWrapper();
     String engine = HiveConf.getVar(hconf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
-    isTez = engine.equals("tez");
     isMr3 = engine.equals("mr3");
-    isLlap = isTez && HiveConf.getVar(hconf, HiveConf.ConfVars.HIVE_EXECUTION_MODE).equals("llap");
-    numExecutors = isLlap ? HiveConf.getIntVar(hconf, HiveConf.ConfVars.LLAP_DAEMON_NUM_EXECUTORS) :
-        ((isTez || isMr3) ? this.getConf().getEstimateNumExecutors() : 1);
+    numExecutors =
+        isMr3 ? this.getConf().getEstimateNumExecutors() : 1;
     firstRow = true;
     // estimate the number of hash table entries based on the size of each
     // entry. Since the size of a entry
@@ -417,9 +413,9 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
       computeMaxEntriesHashAggr();
     }
     memoryMXBean = ManagementFactory.getMemoryMXBean();
-    maxMemory = (isTez || isMr3) ? getConf().getMaxMemoryAvailable() : memoryMXBean.getHeapMemoryUsage().getMax();
+    maxMemory = isMr3 ? getConf().getMaxMemoryAvailable() : memoryMXBean.getHeapMemoryUsage().getMax();
     memoryThreshold = this.getConf().getMemoryThreshold();
-    LOG.info("isTez: {} isMr3: {} isLlap: {} numExecutors: {} maxMemory: {}", isTez, isMr3, isLlap, numExecutors, maxMemory);
+    LOG.info("isMr3: {} numExecutors: {} maxMemory: {}", isMr3, numExecutors, maxMemory);
   }
 
   /**
@@ -433,7 +429,7 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
    **/
   private void computeMaxEntriesHashAggr() throws HiveException {
     float memoryPercentage = this.getConf().getGroupByMemoryUsage();
-    if (isTez || isMr3) {
+    if (isMr3) {
       maxHashTblMemory = (long) (memoryPercentage * getConf().getMaxMemoryAvailable());
     } else {
       maxHashTblMemory = (long) (memoryPercentage * Runtime.getRuntime().maxMemory());
@@ -900,7 +896,7 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
       usedMemory = memoryMXBean.getHeapMemoryUsage().getUsed();
       // TODO: there is no easy and reliable way to compute the memory used by the executor threads and on-heap cache.
       // Assuming the used memory is equally divided among all executors.
-      usedMemory = (isLlap || isTez || isMr3) ? usedMemory / numExecutors : usedMemory;
+      usedMemory = isMr3 ? usedMemory / numExecutors : usedMemory;
       // TODO: In MR3, we conservatively estimate 'rate' because usedMemory is hard to compute accurately,
       // e.g., for DAGAppMaster running multiple local ContainerWorkers each of which in turn runs multiple
       // TaskAttempts. Thus 'rate > memoryThreshold' is triggered more often than usual in such a case.
@@ -909,7 +905,7 @@ public class GroupByOperator extends Operator<GroupByDesc> implements IConfigure
       // Note that maxMemory is set correctly.
       rate = (float) usedMemory / (float) maxMemory;
       if(rate > memoryThreshold){
-        if ((isTez || isMr3) && numEntriesHashTable == 0) {
+        if (isMr3 && numEntriesHashTable == 0) {
           return false;
         } else {
           return true;

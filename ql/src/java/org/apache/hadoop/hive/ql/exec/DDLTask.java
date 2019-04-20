@@ -743,7 +743,7 @@ public class DDLTask extends Task<DDLWork> implements Serializable {
     DriverContext driverCxt = new DriverContext();
     Task<?> task;
     String engine = conf.getVar(ConfVars.HIVE_EXECUTION_ENGINE);
-    if (engine.equals("tez") || engine.equals("mr3")) {
+    if (engine.equals("mr3")) {
       TezWork tezWork = new TezWork(queryState.getQueryId(), conf);
       mergeWork.setName("File Merge");
       tezWork.add(mergeWork);
