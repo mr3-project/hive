@@ -187,11 +187,17 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
     if (HiveConf.getVar(this.jobConf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
       int dagIdId = processorContext.getDagIdentifier();
       String queryId = HiveConf.getVar(this.jobConf, HiveConf.ConfVars.HIVEQUERYID);
-      processorContext.setDagShutdownHook(dagIdId, new Runnable() {
-        public void run() {
-                              ObjectCacheFactory.removeLlapQueryCache(queryId);
-                                                                               }
-      });
+      processorContext.setDagShutdownHook(dagIdId,
+          new Runnable() {
+            public void run() {
+              ObjectCacheFactory.removeLlapQueryCache(queryId);
+            }
+          },
+          new org.apache.tez.runtime.api.TaskContext.VertexShutdown() {
+            public void run(int vertexIdId) {
+              ObjectCacheFactory.removeLlapQueryVertexCache(queryId, vertexIdId);
+            }
+          });
     }
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.TEZ_INITIALIZE_PROCESSOR);

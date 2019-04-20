@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hive.ql.exec.mr3.llap;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.llap.io.api.LlapProxy;
 import org.apache.tez.common.TezUtils;
@@ -26,12 +28,17 @@ import org.apache.tez.runtime.api.Event;
 import org.apache.tez.runtime.api.LogicalInput;
 import org.apache.tez.runtime.api.LogicalOutput;
 import org.apache.tez.runtime.api.ProcessorContext;
+import org.apache.tez.runtime.api.events.TaskAttemptStopRequestEvent;
+import org.apache.tez.runtime.api.events.TaskAttemptDAGJoiningEvent;
+import org.apache.tez.runtime.api.events.TaskAttemptDAGLeavingEvent;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 public class LLAPDaemonProcessor extends AbstractLogicalIOProcessor {
+
+  private static final Log LOG = LogFactory.getLog(LLAPDaemonProcessor.class.getName());
 
   public LLAPDaemonProcessor(ProcessorContext context) {
     super(context);
@@ -43,13 +50,31 @@ public class LLAPDaemonProcessor extends AbstractLogicalIOProcessor {
     LlapProxy.initializeLlapIo(conf);
   }
 
+  private final Object waitLock = new Object();
+
   @Override
   public void run(Map<String, LogicalInput> inputs, Map<String, LogicalOutput> outputs)
       throws Exception {
+    LOG.info("LLAP daemon running");
+    synchronized (waitLock) {
+      waitLock.wait();
+    }
   }
 
   @Override
-  public void handleEvents(List<Event> arg0) {
+  public void handleEvents(List<Event> events) {
+    for (Event event: events) {
+      if (event instanceof TaskAttemptStopRequestEvent) {
+        LOG.info("TaskAttemptStopRequestEvent received - shutting down LLAP daemon");
+        synchronized (waitLock) {
+          waitLock.notifyAll();
+        }
+      } else if (event instanceof TaskAttemptDAGJoiningEvent) {
+        TaskAttemptDAGJoiningEvent ev = (TaskAttemptDAGJoiningEvent)event;
+      } else if (event instanceof TaskAttemptDAGLeavingEvent) {
+        TaskAttemptDAGLeavingEvent ev = (TaskAttemptDAGLeavingEvent)event;
+      }
+    }
   }
 
   @Override

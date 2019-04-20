@@ -220,6 +220,7 @@
     <tephra.version>0.6.0</tephra.version>
     <gson.version>2.2.4</gson.version>
     <rs-api.version>2.0.1</rs-api.version>
+    <mr3.version>0.1</mr3.version>
   </properties>
 
   <repositories>

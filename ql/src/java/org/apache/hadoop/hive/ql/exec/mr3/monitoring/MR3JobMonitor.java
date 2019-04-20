@@ -345,7 +345,9 @@ public class MR3JobMonitor {
             perfLogger.PerfLogBegin(CLASS_NAME, PerfLogger.MR3_RUN_VERTEX + s);
           }
 
-          perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_RUN_VERTEX + s);
+          if (!perfLogger.endTimeHasMethod(PerfLogger.MR3_RUN_VERTEX + s)) {
+            perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_RUN_VERTEX + s);
+          }
         }
         if (complete < total && (complete > 0 || running > 0 || failed > 0)) {
 

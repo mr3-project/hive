@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hive.ql.exec;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hadoop.hive.conf.Constants;
@@ -34,6 +36,8 @@ import org.apache.hadoop.hive.ql.exec.tez.LlapObjectCache;
  */
 public class ObjectCacheFactory {
   private static final ConcurrentHashMap<String, ObjectCache> llapQueryCaches =
+      new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, Map<Integer, LlapObjectCache>> llapVertexCaches =
       new ConcurrentHashMap<>();
   private static final Logger LOG = LoggerFactory.getLogger(ObjectCacheFactory.class);
 
@@ -68,8 +72,14 @@ public class ObjectCacheFactory {
         } else
           return null;
       } else {
-        // return a per-query cache
-        return getLlapObjectCache(queryId);
+        if (llapCacheAlwaysEnabled) {
+          // return a per-query cache
+          return getLlapObjectCache(queryId);
+        } else {
+          // return a per-Vertex cache
+          int vertexIndex = org.apache.hadoop.hive.ql.exec.tez.ObjectCache.getCurrentVertexIndex();
+          return getLlapQueryVertexCache(queryId, vertexIndex);
+        }
       }
     } else if (engine.equals("tez")) {
       if (LlapProxy.isDaemon()) { // daemon
@@ -114,10 +124,48 @@ public class ObjectCacheFactory {
     return (old != null) ? old : result;
   }
 
+  private static LlapObjectCache getLlapQueryVertexCache(String queryId, int vertexIndex) {
+    if (queryId == null) throw new RuntimeException("Query ID cannot be null");
+    Map<Integer, LlapObjectCache> map = getLlapQueryVertexCacheMap(queryId);
+    synchronized (map) {
+      LlapObjectCache result = map.get(vertexIndex);
+      if (result != null) return result;
+      result = new LlapObjectCache();
+      map.put(vertexIndex, result);
+      LOG.info("Created Vertex cache for " + queryId + " " + vertexIndex);
+      return result;
+    }
+  }
+
+  private static Map<Integer, LlapObjectCache> getLlapQueryVertexCacheMap(String queryId) {
+    Map<Integer, LlapObjectCache> result = llapVertexCaches.get(queryId);
+    if (result != null) return result;
+    result = new HashMap<>();
+    Map<Integer, LlapObjectCache> old = llapVertexCaches.putIfAbsent(queryId, result);
+    if (old == null && LOG.isInfoEnabled()) {
+      LOG.info("Created Vertex cache map for " + queryId);
+    }
+    return (old != null) ? old : result;
+  }
+
+  public static void removeLlapQueryVertexCache(String queryId, int vertexIndex) {
+    Map<Integer, LlapObjectCache> result = llapVertexCaches.get(queryId);
+    if (result != null) {
+      LlapObjectCache prev;
+      synchronized (result) {
+        prev = result.remove(vertexIndex);
+      }
+      if (prev != null && LOG.isInfoEnabled()) {
+        LOG.info("Removed Vertex cache for " + queryId + " " + vertexIndex);
+      }
+    }
+  }
+
   public static void removeLlapQueryCache(String queryId) {
     if (LOG.isInfoEnabled()) {
-      LOG.info("Removing object cache for " + queryId);
+      LOG.info("Removing object cache and Vertex cache map for " + queryId);
     }
     llapQueryCaches.remove(queryId);
+    llapVertexCaches.remove(queryId);
   }
 }

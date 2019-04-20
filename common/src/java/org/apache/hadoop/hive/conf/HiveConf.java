@@ -4771,9 +4771,12 @@ public class HiveConf extends Configuration {
         "CPU cores allocated to a DaemonTaskAttempt for LLAP I/O"),
     // EXEC
     MR3_EXEC_SUMMARY("hive.mr3.exec.print.summary", false,
-        "Display breakdown of execution steps, for every query executed by the shell."),
+        "Display breakdown of execution steps, for every query executed by the shell"),
     MR3_EXEC_INPLACE_PROGRESS("hive.mr3.exec.inplace.progress", true,
         "Update job execution progress in-place in the terminal"),
+    // daemon ShuffleHandler
+    MR3_USE_DAEMON_SHUFFLEHANDLER("hive.mr3.use.daemon.shufflehandler", false,
+        "Start a daemon ShuffleHandler in every non-local ContainerWorker"),
     // HiveServer2
     HIVE_SERVER2_MR3_SHARE_SESSION("hive.server2.mr3.share.session", false,
         "Use a common MR3Session to be shared by all HiveSessions");

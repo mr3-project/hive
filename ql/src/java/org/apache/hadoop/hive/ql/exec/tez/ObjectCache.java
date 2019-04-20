@@ -99,6 +99,12 @@ public class ObjectCache implements org.apache.hadoop.hive.ql.exec.ObjectCache {
     }
   }
 
+  public static int getCurrentVertexIndex() {
+    ObjectRegistryVertexIndex currentRegistryIndex = staticRegistryIndex.get();
+    assert currentRegistryIndex != null;
+    return currentRegistryIndex.vertexIndex;
+  }
+
   @Override
   public void release(String key) {
     // nothing to do

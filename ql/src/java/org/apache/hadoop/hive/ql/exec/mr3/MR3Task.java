@@ -283,6 +283,13 @@ public class MR3Task {
     Credentials dagCredentials = jobConf.getCredentials();
     DAGAccessControls dagAccessControls = getAccessControlsForCurrentUser();
 
+    // if doAs == true,
+    //   UserGroupInformation.getCurrentUser() == the user from Beeline (auth:PROXY)
+    //   UserGroupInformation.getCurrentUser() holds HIVE_DELEGATION_TOKEN
+    // if doAs == false,
+    //   UserGroupInformation.getCurrentUser() == the user from HiveServer2 (auth:KERBEROS)
+    //   UserGroupInformation.getCurrentUser() does not hold HIVE_DELEGATION_TOKEN (which is unnecessary)
+
     DAG dag = DAG.create(dagName, dagInfo, dagCredentials, dagAccessControls);
     if (LOG.isDebugEnabled()) {
       LOG.debug("DagInfo: " + dagInfo);

@@ -168,6 +168,7 @@ public class MR3SessionImpl implements MR3Session {
   private void setAmStagingDir(Path sessionScratchDir) {
     Path amStagingDir = new Path(sessionScratchDir, MR3_AM_STAGING_DIR);
     sessionConf.set(MR3Conf$.MODULE$.MR3_AM_STAGING_DIR(), amStagingDir.toUri().toString());
+    // amStagingDir is created by MR3 in ApplicationSubmissionContextBuilder.build()
   }
 
   /**
