@@ -130,6 +130,10 @@ public class VectorMapJoinFastHashTableLoader implements org.apache.hadoop.hive.
           vectorMapJoinFastTableContainer.putRow((BytesWritable)kvReader.getCurrentKey(),
               (BytesWritable)kvReader.getCurrentValue());
           numEntries++;
+          // TODO: introduce a new HiveConf key
+          if ((numEntries % 100000L == 0) && Thread.interrupted()) {
+            throw new InterruptedException("Hash table loading interrupted");
+          }
           if (doMemCheck && (numEntries % memoryMonitorInfo.getMemoryCheckInterval() == 0)) {
               final long estMemUsage = vectorMapJoinFastTableContainer.getEstimatedMemorySize();
               if (estMemUsage > effectiveThreshold) {

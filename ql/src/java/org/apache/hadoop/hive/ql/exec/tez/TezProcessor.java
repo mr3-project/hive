@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hadoop.hive.conf.Constants;
+import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.exec.ObjectCacheFactory;
 import org.apache.tez.runtime.api.TaskFailureType;
 import org.apache.tez.runtime.api.events.CustomProcessorEvent;
 import org.slf4j.Logger;
@@ -143,7 +145,7 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
 
   public TezProcessor(ProcessorContext context) {
     super(context);
-    ObjectCache.setupObjectRegistry(context.getObjectRegistry());
+    ObjectCache.setupObjectRegistry(context);
   }
 
   @Override
@@ -181,6 +183,17 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
       ((Hook)execCtx).initializeHook(this);
     }
     setupMRLegacyConfigs(processorContext);
+
+    if (HiveConf.getVar(this.jobConf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      int dagIdId = processorContext.getDagIdentifier();
+      String queryId = HiveConf.getVar(this.jobConf, HiveConf.ConfVars.HIVEQUERYID);
+      processorContext.setDagShutdownHook(dagIdId, new Runnable() {
+        public void run() {
+                              ObjectCacheFactory.removeLlapQueryCache(queryId);
+                                                                               }
+      });
+    }
+
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.TEZ_INITIALIZE_PROCESSOR);
   }
 

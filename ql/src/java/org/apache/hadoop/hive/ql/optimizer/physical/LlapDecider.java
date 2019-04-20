@@ -105,7 +105,7 @@ public class LlapDecider implements PhysicalPlanResolver {
   }
 
   private LlapMode mode;
-  private final LlapClusterStateForCompile clusterState;
+  private final LlapClusterStateForCompile clusterState;  // nullable
 
   public LlapDecider(LlapClusterStateForCompile clusterState) {
     this.clusterState = clusterState;
@@ -172,14 +172,18 @@ public class LlapDecider implements PhysicalPlanResolver {
       if (reduceWork.isAutoReduceParallelism() == false && reduceWork.isUniformDistribution() == false) {
         return; // Not based on ARP and cannot assume uniform distribution, bail.
       }
-      clusterState.initClusterInfo();
-      int targetCount = 0;
-      if (!clusterState.hasClusterInfo()) {
-        LOG.warn("Cannot determine LLAP cluster information");
-        targetCount = (int)Math.ceil(minReducersPerExec * 1 * executorsPerNode);
+      int targetCount;
+      if (clusterState != null) {
+        clusterState.initClusterInfo();
+        if (!clusterState.hasClusterInfo()) {
+          LOG.warn("Cannot determine LLAP cluster information");
+          targetCount = (int)Math.ceil(minReducersPerExec * 1 * executorsPerNode);
+        } else {
+          targetCount = (int)Math.ceil(minReducersPerExec * (clusterState.getKnownExecutorCount()
+              + clusterState.getNodeCountWithUnknownExecutors() * executorsPerNode));
+        }
       } else {
-        targetCount = (int)Math.ceil(minReducersPerExec * (clusterState.getKnownExecutorCount()
-            + clusterState.getNodeCountWithUnknownExecutors() * executorsPerNode));
+        targetCount = (int)Math.ceil(minReducersPerExec * 1 * executorsPerNode);
       }
       // We only increase the targets here.
       if (reduceWork.isAutoReduceParallelism()) {

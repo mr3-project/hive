@@ -45,6 +45,7 @@ import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.ql.exec.mr3.MR3Task;
 import org.apache.hadoop.hive.ql.exec.tez.monitoring.TezJobMonitor;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -130,6 +131,25 @@ public class TezTask extends Task<TezWork> {
 
   @Override
   public int execute(DriverContext driverContext) {
+    if(conf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      return executeMr3(driverContext);
+    } else {
+      return executeTez(driverContext);
+    }
+  }
+
+  private int executeMr3(DriverContext driverContext) {
+    MR3Task mr3Task = new MR3Task(conf, console);
+    int returnCode = mr3Task.execute(driverContext, this.getWork());
+    counters = mr3Task.getTezCounters();
+    Throwable exFromMr3 = mr3Task.getException();
+    if (exFromMr3 != null) {
+      this.setException(exFromMr3);
+    }
+    return returnCode;
+  }
+
+  private int executeTez(DriverContext driverContext) {
     int rc = 1;
     boolean cleanContext = false;
     Context ctx = null;
@@ -165,7 +185,9 @@ public class TezTask extends Task<TezWork> {
         userName = "anonymous";
       } else {
         try {
-          groups = UserGroupInformation.createRemoteUser(userName).getGroups();
+          groups = Arrays.asList(UserGroupInformation.createRemoteUser(userName).getGroupNames());
+          // TODO: for Hadoop 2.8.0+, just call getGroups():
+          //   groups = UserGroupInformation.createRemoteUser(userName).getGroups();
         } catch (Exception ex) {
           LOG.warn("Cannot obtain groups for " + userName, ex);
         }

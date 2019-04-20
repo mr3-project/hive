@@ -241,6 +241,10 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
         while (kvReader.next()) {
           tableContainer.putRow((Writable) kvReader.getCurrentKey(), (Writable) kvReader.getCurrentValue());
           numEntries++;
+          // TODO: introduce a new HiveConf key
+          if ((numEntries % 100000L == 0) && Thread.interrupted()) {
+            throw new InterruptedException("Hash table loading interrupted");
+          }
           if (doMemCheck && (numEntries % memoryMonitorInfo.getMemoryCheckInterval() == 0)) {
             final long estMemUsage = tableContainer.getEstimatedMemorySize();
             if (estMemUsage > effectiveThreshold) {

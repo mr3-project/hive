@@ -405,6 +405,11 @@ public class ExecDriver extends Task<MapredWork> implements Serializable, Hadoop
         TezSessionPoolManager.closeIfNotDefault(ss.getTezSession(), true);
       }
 
+      if (HiveConf.getVar(job, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")
+          && ss != null) {
+        // TODO: close MR3 Session, since we are executing MR Task, not MR3
+      }
+
       HiveConfUtil.updateJobCredentialProviders(job);
       // Finally SUBMIT the JOB!
       if (driverContext.isShutdown()) {

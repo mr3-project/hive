@@ -68,6 +68,7 @@ import org.apache.hadoop.hive.metastore.api.WMPool;
 import org.apache.hadoop.hive.metastore.api.WMResourcePlan;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.ql.cache.results.QueryResultsCache;
+import org.apache.hadoop.hive.ql.exec.mr3.session.MR3SessionManagerImpl;
 import org.apache.hadoop.hive.ql.exec.spark.session.SparkSessionManagerImpl;
 import org.apache.hadoop.hive.ql.exec.tez.TezSessionPoolManager;
 import org.apache.hadoop.hive.ql.exec.tez.WorkloadManager;
@@ -881,6 +882,14 @@ public class HiveServer2 extends CompositeService {
       }
     }
 
+    if (hiveConf != null && hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      try {
+        MR3SessionManagerImpl.getInstance().shutdown();
+      } catch(Exception ex) {
+        LOG.error("MR3 session pool manager failed to stop during HiveServer2 shutdown.", ex);
+      }
+    }
+
     if (zKClientForPrivSync != null) {
       zKClientForPrivSync.close();
     }
@@ -991,6 +1000,10 @@ public class HiveServer2 extends CompositeService {
 
         if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("spark")) {
           SparkSessionManagerImpl.getInstance().setup(hiveConf);
+        }
+
+        if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+          MR3SessionManagerImpl.getInstance().setup(hiveConf);
         }
         break;
       } catch (Throwable throwable) {

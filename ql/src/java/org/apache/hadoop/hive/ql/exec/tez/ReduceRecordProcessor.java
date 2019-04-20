@@ -165,11 +165,14 @@ public class ReduceRecordProcessor extends RecordProcessor {
     checkAbortCondition();
     // set memory available for operators
     long memoryAvailableToTask = processorContext.getTotalMemoryAvailableToTask();
+    int estimateNumExecutors = processorContext.getEstimateNumExecutors();
     if (reducer.getConf() != null) {
       reducer.getConf().setMaxMemoryAvailable(memoryAvailableToTask);
-      l4j.info("Memory available for operators set to {}", LlapUtil.humanReadableByteCount(memoryAvailableToTask));
+      reducer.getConf().setEstimateNumExecutors(estimateNumExecutors);
+      l4j.info("Memory available for operators set to {} {}", LlapUtil.humanReadableByteCount(memoryAvailableToTask), estimateNumExecutors);
     }
     OperatorUtils.setMemoryAvailable(reducer.getChildOperators(), memoryAvailableToTask);
+    OperatorUtils.setEstimateNumExecutors(reducer.getChildOperators(), estimateNumExecutors);
 
     // Setup values registry
     String valueRegistryKey = DynamicValue.DYNAMIC_VALUE_REGISTRY_CACHE_KEY;

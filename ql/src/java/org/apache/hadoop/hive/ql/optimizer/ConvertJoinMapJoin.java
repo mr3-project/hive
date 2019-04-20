@@ -115,7 +115,8 @@ public class ConvertJoinMapJoin implements NodeProcessor {
     JoinOperator joinOp = (JoinOperator) nd;
     // adjust noconditional task size threshold for LLAP
     LlapClusterStateForCompile llapInfo = null;
-    if ("llap".equalsIgnoreCase(context.conf.getVar(ConfVars.HIVE_EXECUTION_MODE))) {
+    if ("llap".equalsIgnoreCase(context.conf.getVar(ConfVars.HIVE_EXECUTION_MODE)) &&
+        !HiveConf.getVar(context.conf, ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
       llapInfo = LlapClusterStateForCompile.getClusterInfo(context.conf);
       llapInfo.initClusterInfo();
     }

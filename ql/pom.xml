@@ -649,7 +649,6 @@
       <artifactId>tez-dag</artifactId>
       <version>${tez.version}</version>
       <optional>true</optional>
-      <scope>test</scope>
       <exclusions>
        <exclusion>
           <groupId>org.slf4j</groupId>

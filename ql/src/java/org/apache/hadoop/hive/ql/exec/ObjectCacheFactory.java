@@ -20,11 +20,11 @@ package org.apache.hadoop.hive.ql.exec;
 
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.hadoop.hive.conf.Constants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.llap.io.api.LlapProxy;
 import org.apache.hadoop.hive.llap.io.api.LlapProxy;
 import org.apache.hadoop.hive.ql.exec.tez.LlapObjectCache;
 
@@ -59,7 +59,19 @@ public class ObjectCacheFactory {
    * @return
    */
   public static ObjectCache getCache(Configuration conf, String queryId, boolean isPlanCache, boolean llapCacheAlwaysEnabled) {
-    if (HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")) {
+    String engine = HiveConf.getVar(conf, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE);
+    if (engine.equals("mr3")) {
+      if (isPlanCache || !HiveConf.getBoolVar(conf, HiveConf.ConfVars.MR3_CONTAINER_USE_PER_QUERY_CACHE)) {
+        // return a per-thread cache
+        if (org.apache.hadoop.hive.ql.exec.tez.ObjectCache.isObjectRegistryConfigured()) {
+          return new ObjectCacheWrapper(new org.apache.hadoop.hive.ql.exec.tez.ObjectCache(), queryId);
+        } else
+          return null;
+      } else {
+        // return a per-query cache
+        return getLlapObjectCache(queryId);
+      }
+    } else if (engine.equals("tez")) {
       if (LlapProxy.isDaemon()) { // daemon
         if (isLlapCacheEnabled(conf, isPlanCache, llapCacheAlwaysEnabled)) {
           // LLAP object cache, unlike others, does not use globals. Thus, get the existing one.

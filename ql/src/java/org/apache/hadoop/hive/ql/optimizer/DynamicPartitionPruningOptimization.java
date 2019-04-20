@@ -510,8 +510,8 @@ public class DynamicPartitionPruningOptimization implements NodeProcessor {
     groupByOp.setColumnExprMap(colMap);
 
     // finally add the event broadcast operator
-    if (HiveConf.getVar(parseContext.getConf(),
-        ConfVars.HIVE_EXECUTION_ENGINE).equals("tez")) {
+    String engine = HiveConf.getVar(parseContext.getConf(), ConfVars.HIVE_EXECUTION_ENGINE);
+    if (engine.equals("tez") || engine.equals("mr3")) {
       DynamicPruningEventDesc eventDesc = new DynamicPruningEventDesc();
       eventDesc.setTableScan(ts);
       eventDesc.setGenerator(ctx.generator);
