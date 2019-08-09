@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -689,9 +690,7 @@ public class OrcInputFormat implements InputFormat<NullWritable, OrcStruct>,
 
       synchronized (Context.class) {
         if (threadPool == null) {
-          threadPool = Executors.newFixedThreadPool(numThreads,
-              new ThreadFactoryBuilder().setDaemon(true)
-                  .setNameFormat("ORC_GET_SPLITS #%d").build());
+          threadPool = Executors.newFixedThreadPool(numThreads, new OrcGetSplitsThreadFactory());
         }
 
         // TODO: local cache is created once, so the configs for future queries will not be honored.

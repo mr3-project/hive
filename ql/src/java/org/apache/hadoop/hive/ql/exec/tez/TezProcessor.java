@@ -27,9 +27,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hadoop.hive.conf.Constants;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.llap.counters.FragmentCountersMap;
+import org.apache.hadoop.hive.llap.tezplugins.LlapTezUtils;
 import org.apache.hadoop.hive.ql.exec.ObjectCacheFactory;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.io.orc.OrcFile;
+import org.apache.tez.dag.records.TezDAGID;
+import org.apache.tez.dag.records.TezTaskAttemptID;
+import org.apache.tez.dag.records.TezTaskID;
+import org.apache.tez.dag.records.TezVertexID;
+import org.apache.tez.mapreduce.input.MRInput;
 import org.apache.tez.runtime.api.TaskFailureType;
 import org.apache.tez.runtime.api.events.CustomProcessorEvent;
 import org.slf4j.Logger;
@@ -279,8 +286,22 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
       Map<String, LogicalOutput> outputs)
       throws Exception {
     Throwable originalThrowable = null;
-    try {
 
+    boolean setLlapCacheCounters = isMap &&
+        HiveConf.getVar(this.jobConf, HiveConf.ConfVars.HIVE_EXECUTION_MODE).equals("llap")
+        && HiveConf.getBoolVar(this.jobConf, HiveConf.ConfVars.LLAP_CLIENT_CONSISTENT_SPLITS);
+    String fragmentId = null;
+    if (setLlapCacheCounters) {
+      TezDAGID tezDAGID = TezDAGID.getInstance(this.getContext().getApplicationId(), this.getContext().getDagIdentifier());
+      TezVertexID tezVertexID = TezVertexID.getInstance(tezDAGID, this.getContext().getTaskVertexIndex());
+      TezTaskID tezTaskID = TezTaskID.getInstance(tezVertexID, this.getContext().getTaskIndex());
+      TezTaskAttemptID tezTaskAttemptID = TezTaskAttemptID.getInstance(tezTaskID, this.getContext().getTaskAttemptNumber());
+      this.jobConf.set(MRInput.TEZ_MAPREDUCE_TASK_ATTEMPT_ID, tezTaskAttemptID.toString());
+      fragmentId = LlapTezUtils.getFragmentId(this.jobConf);
+      FragmentCountersMap.registerCountersForFragment(fragmentId, this.processorContext.getCounters());
+    }
+
+    try {
       MRTaskReporter mrReporter = new MRTaskReporter(getContext());
       // Init and run are both potentially long, and blocking operations. Synchronization
       // with the 'abort' operation will not work since if they end up blocking on a monitor
@@ -301,6 +322,9 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
                       "Cannot recover from this error");
         ObjectCache.clearObjectRegistry();  // clear thread-local cache which may contain MAP/REDUCE_PLAN
         Utilities.clearWork(jobConf);       // clear thread-local gWorkMap which may contain MAP/REDUCE_PLAN
+        if (setLlapCacheCounters) {
+          FragmentCountersMap.unregisterCountersForFragment(fragmentId);
+        }
         throw new RuntimeException(originalThrowable);
       }
 
@@ -312,6 +336,10 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
         if (originalThrowable == null) {
           originalThrowable = t;
         }
+      }
+
+      if (setLlapCacheCounters) {
+        FragmentCountersMap.unregisterCountersForFragment(fragmentId);
       }
 
       // Invariant: calls to abort() eventually lead to clearing thread-local cache exactly once.

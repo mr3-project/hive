@@ -60,6 +60,8 @@ import org.apache.tez.dag.app.dag.impl.RootInputVertexManager;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -193,6 +195,9 @@ public class MR3Task {
       LOG.info("MR3Task completed"); 
     } catch (Exception e) {
       LOG.error("Failed to execute MR3Task", e);
+      StringWriter sw = new StringWriter();
+      e.printStackTrace(new PrintWriter(sw));
+      this.setException(new HiveException(sw.toString()));
       returnCode = 1;   // indicates failure  
     } finally {
       Utilities.clearWork(conf);

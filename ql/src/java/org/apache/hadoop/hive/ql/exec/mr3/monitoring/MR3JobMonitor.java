@@ -78,7 +78,7 @@ public class MR3JobMonitor {
 
   static {
     shutdownList = new LinkedList<DAGClient>();
-    Runtime.getRuntime().addShutdownHook(new Thread() {
+    Thread shutdownThread = new Thread() {
       @Override
       public void run() {
         MR3JobMonitor.killRunningJobs();
@@ -90,7 +90,9 @@ public class MR3JobMonitor {
           // ignore
         }
       }
-    });
+    };
+    shutdownThread.setContextClassLoader(ClassLoader.getSystemClassLoader());
+    Runtime.getRuntime().addShutdownHook(shutdownThread);
   }
 
   public static void initShutdownHook() {
