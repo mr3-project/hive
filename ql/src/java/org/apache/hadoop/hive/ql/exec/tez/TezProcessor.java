@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.hive.conf.Constants;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.ObjectCacheFactory;
+import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.io.orc.OrcFile;
 import org.apache.tez.runtime.api.TaskFailureType;
 import org.apache.tez.runtime.api.events.CustomProcessorEvent;
@@ -297,6 +298,8 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
         LOG.error("Cannot recover from this FATAL error", StringUtils.stringifyException(originalThrowable));
         getContext().reportFailure(TaskFailureType.FATAL, originalThrowable,
                       "Cannot recover from this error");
+        ObjectCache.clearObjectRegistry();  // clear thread-local cache which may contain MAP/REDUCE_PLAN
+        Utilities.clearWork(jobConf);       // clear thread-local gWorkMap which may contain MAP/REDUCE_PLAN
         throw new RuntimeException(originalThrowable);
       }
 

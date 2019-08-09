@@ -99,6 +99,11 @@ public class ObjectCache implements org.apache.hadoop.hive.ql.exec.ObjectCache {
     }
   }
 
+  public static void clearObjectRegistry() {
+    LOG.info("Clearing ObjectRegistry");
+    staticRegistryIndex.set(null);
+  }
+
   public static int getCurrentVertexIndex() {
     ObjectRegistryVertexIndex currentRegistryIndex = staticRegistryIndex.get();
     assert currentRegistryIndex != null;
