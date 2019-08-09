@@ -22,6 +22,11 @@ import org.apache.tez.common.counters.TezCounters;
 
 public interface MR3JobRef {
 
+  // JobId == ApplicationID
+  // DAGClient.getApplicationReport() is only for MR3JobClient, not MR3SessionClient.
+  // Hence we should never need MR3JobRef.getJobId() because ApplicationID belongs to MR3Session, not
+  // individual MR3JobRef's. (Cf. getJobId() calls DAGClient.getApplicationReport().)
+  // currently not called
   String getJobId();
 
   int monitorJob();

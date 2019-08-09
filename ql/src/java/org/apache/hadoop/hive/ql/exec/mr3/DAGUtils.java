@@ -47,6 +47,7 @@ import org.apache.hadoop.hive.ql.exec.mr3.dag.EdgeProperty;
 import org.apache.hadoop.hive.ql.exec.mr3.dag.EntityDescriptor;
 import org.apache.hadoop.hive.ql.exec.mr3.dag.GroupInputEdge;
 import org.apache.hadoop.hive.ql.exec.mr3.dag.Vertex;
+import org.apache.hadoop.hive.ql.exec.mr3.session.MR3SessionManagerImpl;
 import org.apache.hadoop.hive.ql.exec.tez.CustomPartitionEdge;
 import org.apache.hadoop.hive.ql.exec.tez.CustomPartitionVertex;
 import org.apache.hadoop.hive.ql.exec.tez.HiveSplitGenerator;
@@ -64,6 +65,7 @@ import org.apache.hadoop.hive.ql.io.HiveOutputFormatImpl;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileMapper;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileOutputFormat;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileWork;
+import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.hive.ql.plan.MapWork;
@@ -1384,7 +1386,7 @@ public class DAGUtils {
    * Gets the mr3 Scratch dir for MR3Tasks
    */
   private Path getMr3ScratchDir(Path scratchDir) {
-    return new Path(scratchDir, MR3_DIR + "-" + TaskRunner.getTaskRunnerID());
+    return new Path(scratchDir, MR3_DIR + "-" + MR3SessionManagerImpl.getInstance().getUniqueId() + "-" + TaskRunner.getTaskRunnerID());
   }
 
   public void cleanMr3Dir( Path scratchDir, Configuration conf ) {

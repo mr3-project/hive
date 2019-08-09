@@ -88,6 +88,11 @@ public class MR3Task {
   private TezCounters counters;
   private Throwable exception;
 
+  // updated in setupSubmit()
+  private MR3Session mr3Session = null;
+  private Path mr3ScratchDir = null;
+  private Map<String, LocalResource> amDagCommonLocalResources = null;
+
   public MR3Task(HiveConf conf, SessionState.LogHelper console, AtomicBoolean isShutdown) {
     this.conf = conf;
     this.console = console;
@@ -112,10 +117,9 @@ public class MR3Task {
     int returnCode = 1;   // 1 == error
     boolean cleanContext = false;
     Context context = null;
-    Path mr3ScratchDir = null;
     MR3JobRef mr3JobRef = null;
 
-    console.printInfo("MR3Task.execute(): ", tezWork.getName());
+    console.printInfo("MR3Task.execute(): " + tezWork.getName());
 
     try {
       context = driverContext.getCtx();
@@ -124,42 +128,51 @@ public class MR3Task {
         cleanContext = true;
       }
 
-      MR3Session mr3Session = getMr3Session(conf);
-      Path sessionScratchDir = mr3Session.getSessionScratchDir();
-      // sessionScratchDir is not null because mr3Session is open:
-      //   if shareMr3Session == false, this MR3Task/thread owns mr3Session, which must be open.
-      //   if shareMr3Session == true, close() is called only from MR3Session.shutdown() in the end.
-      mr3ScratchDir = dagUtils.createMr3ScratchDir(sessionScratchDir, conf);
-
       // jobConf holds all the configurations for hadoop, tez, and hive, but not MR3
-      // TODO: move right before the call to buildDag()
+      // effectful: conf is updated
       JobConf jobConf = dagUtils.createConfiguration(conf);
 
-      // 1. read confLocalResources
-      // confLocalResource = specific to this MR3Task obtained from conf
-      // localizeTempFilesFromConf() updates conf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
-      // Note that we should not copy to mr3ScratchDir in order to avoid redundant localization.
-      List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
+      DAG dag = setupSubmit(jobConf, tezWork, context);
 
-      // 2. compute amDagCommonLocalResources
-      Map<String, LocalResource> amDagCommonLocalResources =
-        dagUtils.convertLocalResourceListToMap(confLocalResources);
-
-      // 3. create DAG
-      DAG dag = buildDag(jobConf, tezWork, mr3ScratchDir, context, amDagCommonLocalResources);
-      console.printInfo("Finished building DAG, now submitting: " + tezWork.getName());
-
-      if (this.isShutdown.get()) {
-        throw new HiveException("Operation cancelled before submit()");
+      // 4. submit
+      try {
+        mr3JobRef = mr3Session.submit(
+            dag, amDagCommonLocalResources, conf, tezWork.getWorkMap(), context, isShutdown, perfLogger);
+        // mr3Session can be closed at any time, so the call may fail
+        // handle only Exception from mr3Session.submit()
+      } catch (Exception submitEx) {
+        // if mr3Session is alive, return null
+        // if mr3Session is not alive, ***close it*** and return a new one
+        MR3SessionManager mr3SessionManager = MR3SessionManagerImpl.getInstance();
+        MR3Session newMr3Session = mr3SessionManager.triggerCheckApplicationStatus(mr3Session, this.conf);
+        if (newMr3Session == null) {
+          LOG.warn("Current MR3Session is still valid, failing MR3Task");
+          throw submitEx;
+        } else {
+          // newMr3Session can be closed at any time
+          LOG.warn("Current MR3Session is invalid, setting new MR3Session and trying again");
+          // mr3Session is already closed by MR3SessionManager
+          SessionState.get().setMr3Session(newMr3Session);
+          // simulate completing the current call to execute() and calling it again
+          // 1. simulate completing the current call to execute()
+          Utilities.clearWork(conf);
+          // no need to call cleanContextIfNecessary(cleanContext, context)
+          if (mr3ScratchDir != null) {
+            dagUtils.cleanMr3Dir(mr3ScratchDir, conf);
+          }
+          // 2. call again
+          DAG newDag = setupSubmit(jobConf, tezWork, context);
+          // mr3Session can be closed at any time, so the call may fail
+          mr3JobRef = mr3Session.submit(
+              newDag, amDagCommonLocalResources, conf, tezWork.getWorkMap(), context, isShutdown, perfLogger);
+        }
       }
 
-      // 4. submit and monitor
-      mr3JobRef = mr3Session.submit(
-          dag, amDagCommonLocalResources, conf, tezWork.getWorkMap(), context, isShutdown, perfLogger);
-
-      // do not change the output string below which is used to extract application ID by mr3-run/hive
-      console.printInfo(
-          "Status: Running (Executing on MR3 DAGAppMaster with App id " + mr3JobRef.getJobId() + ")");
+      // 5. monitor
+      console.printInfo("Status: Running (Executing on MR3 DAGAppMaster): " + tezWork.getName());
+      // for extracting ApplicationID by mr3-run/hive/hive-setup.sh#hive_setup_get_yarn_report_from_file():
+      // console.printInfo(
+      //     "Status: Running (Executing on MR3 DAGAppMaster with ApplicationID " + mr3JobRef.getJobId() + ")");
       returnCode = mr3JobRef.monitorJob();
       if (returnCode != 0) {
         this.setException(new HiveException(mr3JobRef.getDiagnostics()));
@@ -179,7 +192,7 @@ public class MR3Task {
 
       LOG.info("MR3Task completed"); 
     } catch (Exception e) {
-      LOG.error("Failed to execute MR3 job.", e);
+      LOG.error("Failed to execute MR3Task", e);
       returnCode = 1;   // indicates failure  
     } finally {
       Utilities.clearWork(conf);
@@ -201,6 +214,35 @@ public class MR3Task {
     return returnCode; 
   }
 
+  private DAG setupSubmit(JobConf jobConf, TezWork tezWork, Context context) throws Exception {
+    mr3Session = getMr3Session(conf);
+    // mr3Session can be closed at any time
+    Path sessionScratchDir = mr3Session.getSessionScratchDir();
+    // sessionScratchDir is not null because mr3Session has started:
+    //   if shareMr3Session == false, this MR3Task/thread owns mr3Session, which must have started.
+    //   if shareMr3Session == true, close() is called only from MR3Session.shutdown() in the end.
+    mr3ScratchDir = dagUtils.createMr3ScratchDir(sessionScratchDir, conf);
+
+    // 1. read confLocalResources
+    // confLocalResource = specific to this MR3Task obtained from conf
+    // localizeTempFilesFromConf() updates conf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
+    // Note that we should not copy to mr3ScratchDir in order to avoid redundant localization.
+    List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
+
+    // 2. compute amDagCommonLocalResources
+    amDagCommonLocalResources = dagUtils.convertLocalResourceListToMap(confLocalResources);
+
+    // 3. create DAG
+    DAG dag = buildDag(jobConf, tezWork, mr3ScratchDir, context, amDagCommonLocalResources);
+    console.printInfo("Finished building DAG, now submitting: " + tezWork.getName());
+
+    if (this.isShutdown.get()) {
+      throw new HiveException("Operation cancelled before submit()");
+    }
+
+    return dag;
+  }
+
   private void cleanContextIfNecessary(boolean cleanContext, Context context) {
     if (cleanContext) {
       try {
@@ -213,10 +255,12 @@ public class MR3Task {
 
   private MR3Session getMr3Session(HiveConf hiveConf) throws Exception {
     MR3SessionManager mr3SessionManager = MR3SessionManagerImpl.getInstance();
+
+    // TODO: currently hiveConf.getMr3ConfigUpdated() always returns false
     if (hiveConf.getMr3ConfigUpdated() && !mr3SessionManager.getShareMr3Session()) {
       MR3Session mr3Session = SessionState.get().getMr3Session();
       if (mr3Session != null) {
-        // this MR3Task/thread owns mr3session, so it must be open
+        // this MR3Task/thread owns mr3session, so it must have started
         mr3SessionManager.closeSession(mr3Session);
         SessionState.get().setMr3Session(null);
       }
@@ -229,7 +273,7 @@ public class MR3Task {
       mr3Session = mr3SessionManager.getSession(hiveConf);
       SessionState.get().setMr3Session(mr3Session);
     }
-    // if shareMr3Session == false, this MR3Task/thread owns mr3Session, which must be open.
+    // if shareMr3Session == false, this MR3Task/thread owns mr3Session, which must be start.
     // if shareMr3Session == true, close() is called only from MR3Session.shutdown() in the end.
     return mr3Session;
   }

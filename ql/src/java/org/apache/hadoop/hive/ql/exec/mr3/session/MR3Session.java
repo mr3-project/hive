@@ -27,6 +27,7 @@ import org.apache.hadoop.hive.ql.exec.mr3.status.MR3JobRef;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.BaseWork;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 
 import java.util.Map;
@@ -39,7 +40,11 @@ public interface MR3Session {
    * May block until Client is initialized and ready for DAG submission
    * @param conf Hive configuration.
    */
-  void open(HiveConf conf) throws HiveException;
+  void start(HiveConf conf) throws HiveException;
+
+  void connect(HiveConf conf, ApplicationId appId) throws HiveException;
+
+  ApplicationId getApplicationId();
 
   /**
    * @param dag
@@ -66,10 +71,12 @@ public interface MR3Session {
   /**
    * Close session and release resources.
    */
-  void close();
+  void close(boolean terminateApplication);
 
   /**
    * @return session scratch Directory
    */
   Path getSessionScratchDir();
+
+  boolean isRunningFromApplicationReport();
 }

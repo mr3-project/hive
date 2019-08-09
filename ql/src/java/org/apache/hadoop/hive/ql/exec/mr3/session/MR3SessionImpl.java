@@ -41,12 +41,14 @@ import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 import edu.postech.mr3.DAGAPI;
 import edu.postech.mr3.api.common.MR3Conf;
 import edu.postech.mr3.api.common.MR3Conf$;
 import edu.postech.mr3.api.common.MR3ConfBuilder;
+import edu.postech.mr3.common.fs.StagingDirUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -66,21 +68,28 @@ public class MR3SessionImpl implements MR3Session {
   private static final String MR3_DIR = "_mr3_session_dir";
   private static final String MR3_AM_STAGING_DIR = "staging";
 
+  private static final String MR3_SHARED_SESSION_ID = "MR3_SHARED_SESSION_ID";
+
   private final boolean shareMr3Session;
   private final String sessionId;
   private final String sessionUser;
 
-  // set in open() and close()
+  // set in start() and close()
   // read in submit() via updateAmCredentials()
   private HiveConf sessionConf;
-  // read in submit()
+  // read in submit(), isRunningFromApplicationReport()
   private HiveMR3Client hiveMr3Client;
 
-  // set in open() and close()
+  private ApplicationId appId;
+
+  // invariant: used only if shareMr3Session == true
+  private boolean useGlobalMr3SessionIdFromEnv;
+
+  // set in start() and close()
   // read from MR3Task thread via getSessionScratchDir()
   private Path sessionScratchDir;
 
-  // updated in open() and submit()
+  // updated in start(), close(), and submit()
   // via updateAmLocalResources()
   private Map<String, LocalResource> amLocalResources = new HashMap<String, LocalResource>();
   // via updateAmCredentials()
@@ -90,8 +99,19 @@ public class MR3SessionImpl implements MR3Session {
 
   DAGUtils dagUtils = DAGUtils.getInstance();
 
-  public static String makeSessionId() {
-    return UUID.randomUUID().toString();
+  // Cf. MR3SessionImpl.sessionId != HiveConf.HIVESESSIONID
+  private String makeSessionId() {
+    if (shareMr3Session) {
+      String globalMr3SessionIdFromEnv = System.getenv(MR3_SHARED_SESSION_ID);
+      useGlobalMr3SessionIdFromEnv = globalMr3SessionIdFromEnv != null && !globalMr3SessionIdFromEnv.isEmpty();
+      if (useGlobalMr3SessionIdFromEnv) {
+        return globalMr3SessionIdFromEnv;
+      } else {
+        return UUID.randomUUID().toString();
+      }
+    } else {
+      return UUID.randomUUID().toString();
+    }
   }
 
   public MR3SessionImpl(boolean shareMr3Session, String sessionUser) {
@@ -100,69 +120,100 @@ public class MR3SessionImpl implements MR3Session {
     this.sessionUser = sessionUser;
   }
 
-  // if shareMr3Session == false, close() can be called only from the owner MR3Task/SessionState.
-  // if shareMr3Session == true, close() is called only from MR3SessionManager.shutdown() at the end.
+  public String getSessionUser() {
+    return this.sessionUser;
+  }
 
   @Override
-  public synchronized void open(HiveConf conf) throws HiveException {
+  public synchronized void start(HiveConf conf) throws HiveException {
     this.sessionConf = conf;
     try {
-      sessionScratchDir = createSessionScratchDir(sessionId);
-      setAmStagingDir(sessionScratchDir);
+      setupHiveMr3Client(conf);
 
-      // 1. read hiveJarLocalResources and confLocalResources
+      LOG.info("Starting HiveMR3Client");
+      ApplicationId appId = hiveMr3Client.start();
 
-      // getSessionInitJars() returns hive-exec.jar + HIVEAUXJARS
-      List<LocalResource> hiveJarLocalResources =
-        dagUtils.localizeTempFiles(sessionScratchDir, conf, dagUtils.getSessionInitJars(conf));
-      Map<String, LocalResource> additionalSessionLocalResources =
-          dagUtils.convertLocalResourceListToMap(hiveJarLocalResources);
-
-      Credentials additionalSessionCredentials = new Credentials();
-      Set<Path> allPaths = new HashSet<Path>();
-      for (LocalResource lr: additionalSessionLocalResources.values()) {
-        allPaths.add(ConverterUtils.getPathFromYarnURL(lr.getResource()));
-      }
-      dagUtils.addPathsToCredentials(additionalSessionCredentials, allPaths, conf);
-
-      // 2. read confLocalResources
-
-      // confLocalResource = specific to this MR3Session obtained from sessionConf
-      // localizeTempFilesFromConf() updates sessionConf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
-      List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
-
-      // We do not add confLocalResources to additionalSessionLocalResources because
-      // dagUtils.localizeTempFilesFromConf() will be called each time a new DAG is submitted.
-
-      // 3. set initAmLocalResources
-
-      List<LocalResource> initAmLocalResources = new ArrayList<LocalResource>();
-      initAmLocalResources.addAll(confLocalResources);
-      Map<String, LocalResource> initAmLocalResourcesMap =
-        dagUtils.convertLocalResourceListToMap(initAmLocalResources);
-
-      // 4. update amLocalResource and create HiveMR3Client
-
-      updateAmLocalResources(initAmLocalResourcesMap);
-      updateAmCredentials(initAmLocalResourcesMap);
-
-      LOG.info(
-          "Opening a new MR3 Session (id: " + sessionId + ", scratch dir: " + sessionScratchDir + ")");
-      hiveMr3Client = HiveMR3ClientFactory.createHiveMr3Client(
-          sessionId,
-          amCredentials, amLocalResources,
-          additionalSessionCredentials, additionalSessionLocalResources,
-          conf);
-
-      // 4. wait until ready
-
-      LOG.info("Waiting until MR3Client starts and transitions to Ready");
+      LOG.info("Waiting until MR3Client starts and transitions to Ready: " + appId);
       waitUntilMr3ClientReady();
+
+      this.appId = appId;
     } catch (Exception e) {
-      LOG.error("Failed to open MR3 Session", e);
-      close();
+      LOG.error("Failed to start MR3 Session", e);
+      close(true);
       throw new HiveException("Failed to create or start MR3Client", e);
     }
+  }
+
+  public synchronized void connect(HiveConf conf, ApplicationId appId) throws HiveException {
+    this.sessionConf = conf;
+    try {
+      setupHiveMr3Client(conf);
+
+      LOG.info("Connecting HiveMR3Client: " + appId);
+      hiveMr3Client.connect(appId);
+
+      LOG.info("Waiting until MR3Client transitions to Ready: " + appId);
+      waitUntilMr3ClientReady();
+
+      this.appId = appId;
+    } catch (Exception e) {
+      LOG.error("Failed to connect MR3 Session", e);
+      close(false);
+      throw new HiveException("Failed to connect MR3Client", e);
+    }
+  }
+
+  @Override
+  public synchronized ApplicationId getApplicationId() {
+    return this.appId;
+  }
+
+  private void setupHiveMr3Client(HiveConf conf) throws Exception {
+    sessionScratchDir = createSessionScratchDir(sessionId);
+    setAmStagingDir(sessionScratchDir);
+
+    // 1. read hiveJarLocalResources and confLocalResources
+
+    // getSessionInitJars() returns hive-exec.jar + HIVEAUXJARS
+    List<LocalResource> hiveJarLocalResources =
+        dagUtils.localizeTempFiles(sessionScratchDir, conf, dagUtils.getSessionInitJars(conf));
+    Map<String, LocalResource> additionalSessionLocalResources =
+        dagUtils.convertLocalResourceListToMap(hiveJarLocalResources);
+
+    Credentials additionalSessionCredentials = new Credentials();
+    Set<Path> allPaths = new HashSet<Path>();
+    for (LocalResource lr: additionalSessionLocalResources.values()) {
+      allPaths.add(ConverterUtils.getPathFromYarnURL(lr.getResource()));
+    }
+    dagUtils.addPathsToCredentials(additionalSessionCredentials, allPaths, conf);
+
+    // 2. read confLocalResources
+
+    // confLocalResource = specific to this MR3Session obtained from sessionConf
+    // localizeTempFilesFromConf() updates sessionConf by calling HiveConf.setVar(HIVEADDEDFILES/JARS/ARCHIVES)
+    List<LocalResource> confLocalResources = dagUtils.localizeTempFilesFromConf(sessionScratchDir, conf);
+
+    // We do not add confLocalResources to additionalSessionLocalResources because
+    // dagUtils.localizeTempFilesFromConf() will be called each time a new DAG is submitted.
+
+    // 3. set initAmLocalResources
+
+    List<LocalResource> initAmLocalResources = new ArrayList<LocalResource>();
+    initAmLocalResources.addAll(confLocalResources);
+    Map<String, LocalResource> initAmLocalResourcesMap =
+        dagUtils.convertLocalResourceListToMap(initAmLocalResources);
+
+    // 4. update amLocalResource and create HiveMR3Client
+
+    updateAmLocalResources(initAmLocalResourcesMap);
+    updateAmCredentials(initAmLocalResourcesMap);
+
+    LOG.info("Creating HiveMR3Client (id: " + sessionId + ", scratch dir: " + sessionScratchDir + ")");
+    hiveMr3Client = HiveMR3ClientFactory.createHiveMr3Client(
+        sessionId,
+        amCredentials, amLocalResources,
+        additionalSessionCredentials, additionalSessionLocalResources,
+        conf);
   }
 
   private void setAmStagingDir(Path sessionScratchDir) {
@@ -190,24 +241,60 @@ public class MR3SessionImpl implements MR3Session {
     mr3SessionScratchDir = dirStatus.getPath();
     LOG.info("Created MR3 Session Scratch Dir: " + mr3SessionScratchDir);
 
-    // don't keep the directory around on non-clean exit
-    fs.deleteOnExit(mr3SessionScratchDir);
+    // don't keep the directory around on non-clean exit if necessary
+    if (shareMr3Session) {
+      if (useGlobalMr3SessionIdFromEnv) {
+        // because session scratch directory is potentially shared by other HS2 instances
+        LOG.info("Do not delete session scratch directory on non-clean exit");
+      } else {
+        // TODO: currently redundant because close() calls cleanupSessionScratchDir()
+        fs.deleteOnExit(mr3SessionScratchDir);  // because Beeline cannot connect to this HS2 instance
+      }
+    } else {
+      // TODO: currently redundant because close() calls cleanupSessionScratchDir()
+      fs.deleteOnExit(mr3SessionScratchDir);  // because Beeline cannot connect to this HS2 instance
+    }
 
     return mr3SessionScratchDir;
   }
 
+  // handle hiveMr3Client and sessionScratchDir independently because close() can be called from start()
+  // can be called several times
   @Override
-  public synchronized void close() {
+  public synchronized void close(boolean terminateApplication) {
     if (hiveMr3Client != null) {
-      hiveMr3Client.close();
+      hiveMr3Client.close(terminateApplication);
     }
     hiveMr3Client = null;
 
     amLocalResources.clear();
+
     amCredentials = null;
 
-    if (sessionScratchDir != null) {
-      cleanupSessionScratchDir();
+    // Requirement: useGlobalMr3SessionIdFromEnv == true if and only if on 'Yarn with HA' or on K8s
+    //
+    // On Yarn without HA:
+    //   invariant: terminateApplication == true
+    //   delete <sessionScratchDir> because Application is unknown to any other HiveServer2 instance
+    // On Yarn with HA and with terminateApplication == true;
+    //   delete <sessionScratchDir>/staging/.mr3/<application ID>
+    //   Cf. <sessionScratchDir> itself should be deleted by the admin user.
+    // On K8s:
+    //   <sessionScratchDir> is shared by all HS2 instances.
+    //   We should not delete <sessionScratchDir> because it is shared by the next Application (== Pod).
+    //   hence, same as the case of 'On Yarn with HA'
+    //
+    // The following code implements the above logic by inspecting useGlobalMr3SessionIdFromEnv.
+    if (sessionScratchDir != null && terminateApplication) {
+      if (shareMr3Session) {
+        if (useGlobalMr3SessionIdFromEnv) {
+          cleanupStagingDir();
+        } else {
+          cleanupSessionScratchDir();
+        }
+      } else {
+        cleanupSessionScratchDir();
+      }
     }
 
     sessionConf = null;
@@ -216,6 +303,16 @@ public class MR3SessionImpl implements MR3Session {
   private void cleanupSessionScratchDir() {
     dagUtils.cleanMr3Dir(sessionScratchDir, sessionConf);
     sessionScratchDir = null;
+  }
+
+  private void cleanupStagingDir() {
+    dagUtils.cleanMr3Dir(getStagingDir(), sessionConf);
+    sessionScratchDir = null;
+  }
+
+  private Path getStagingDir() {
+    Path baseStagingDir = new Path(sessionScratchDir, MR3_AM_STAGING_DIR);
+    return StagingDirUtils.getSystemStagingDirFromBaseStagingDir(baseStagingDir, getApplicationId().toString());
   }
 
   public synchronized Path getSessionScratchDir() {
@@ -233,23 +330,26 @@ public class MR3SessionImpl implements MR3Session {
       PerfLogger perfLogger) throws Exception {
     perfLogger.PerfLogBegin(CLASS_NAME, PerfLogger.MR3_SUBMIT_DAG);
 
-    // This code block is not really necessary and we could just read hiveMr3Client directly
-    // because before calling submit(), MR3Task always calls getSessionScratchDir(), at which point
-    // synchronization takes place with the thread that previously initialized hiveMr3Client.
-    // TODO: use hiveMr3Client and remove currentHiveMr3Client
     HiveMR3Client currentHiveMr3Client;
+    Map<String, LocalResource> addtlAmLocalResources = null;
+    Credentials addtlAmCredentials = null;
     synchronized (this) {
       currentHiveMr3Client = hiveMr3Client;
+      if (currentHiveMr3Client != null) {
+        // close() has not been called
+        addtlAmLocalResources = updateAmLocalResources(newAmLocalResources);
+        addtlAmCredentials = updateAmCredentials(newAmLocalResources);
+      }
     }
-    Preconditions.checkState(isOpen(currentHiveMr3Client), "Session is not open. Can't submit jobs.");
 
-    Map<String, LocalResource> addtlAmLocalResources;
-    Credentials addtlAmCredentials;
-    synchronized (this) {
-      // add newAmLocalResources to this.amLocalResources
-      addtlAmLocalResources = updateAmLocalResources(newAmLocalResources);
-      addtlAmCredentials = updateAmCredentials(newAmLocalResources);
-    }
+    LOG.info("Checking if MR3 Session is open");
+    // isOpen() is potentially effect-ful. Note that it eventually calls MR3SessionClient.getSessionStatus()
+    // which in turn calls DAGClientRPC.getSessionStatus(). If DAGClientRPC.proxy is set to null,
+    // DAGClientRPC.getSessionStatus() creates a new Proxy. This can happen if DAGAppMaster was killed by
+    // the user and thus the previous RPC call failed, thus calling DAGClientRPC.stopProxy().
+    Preconditions.checkState(isOpen(currentHiveMr3Client), "MR3 Session is not open");
+
+    // still close() can be called at any time (from MR3SessionManager.getNewMr3SessionIfNotAlive())
 
     String dagUser = UserGroupInformation.getCurrentUser().getShortUserName();
     MR3Conf dagConf = createDagConf(mr3TaskConf, dagUser);
@@ -257,7 +357,9 @@ public class MR3SessionImpl implements MR3Session {
     // sessionConf is not passed to MR3; only dagConf is passed to MR3 as a component of DAGProto.dagConf.
     DAGAPI.DAGProto dagProto = dag.createDagProto(mr3TaskConf, dagConf);
 
-    MR3JobRef mr3JobRef = currentHiveMr3Client.execute(
+    LOG.info("Submitting DAG");
+    // close() may have been called, in which case currentHiveMr3Client.submitDag() raises Exception
+    MR3JobRef mr3JobRef = currentHiveMr3Client.submitDag(
         dagProto, addtlAmCredentials, addtlAmLocalResources, workMap, dag, ctx, isShutdown);
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_SUBMIT_DAG);
@@ -356,6 +458,8 @@ public class MR3SessionImpl implements MR3Session {
           return;
         }
       } catch (Exception ex) {
+        // Unfortunately We cannot distinguish between 'DAGAppMaster has not started yet' and 'DAGAppMaster
+        // has already terminated'. In both cases, we get Exception.
         LOG.info("Exception while waiting for MR3Client state: " + ex.getClass().getSimpleName());
       }
       Thread.sleep(1000);
@@ -368,5 +472,22 @@ public class MR3SessionImpl implements MR3Session {
     MR3ClientState state = hiveMr3Client.getClientState();
     LOG.info("Current MR3Client state = " + state.toString());
     return state == MR3ClientState.READY;
+  }
+
+  public boolean isRunningFromApplicationReport() {
+    HiveMR3Client currentHiveMr3Client;
+    synchronized (this) {
+      currentHiveMr3Client = hiveMr3Client;
+    }
+
+    if (currentHiveMr3Client != null) {
+      try {
+        return currentHiveMr3Client.isRunningFromApplicationReport();
+      } catch (Exception ex) {
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
 }

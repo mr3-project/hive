@@ -48,6 +48,8 @@ public class MR3JobRefImpl implements MR3JobRef {
 
   @Override
   public String getJobId() {
+    // We should not really call dagClient.getApplicationReport() because we are in MR3SessionClient,
+    // not in MR3JobClient. Currently we do not call getJobId().
     ApplicationReport applicationReport = dagClient.getApplicationReport().getOrElse(null); // == .orNull
     return applicationReport != null ? applicationReport.getApplicationId().toString(): "None";
   }

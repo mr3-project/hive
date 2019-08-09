@@ -4792,6 +4792,10 @@ public class HiveConf extends Configuration {
     MR3_AM_TASK_MAX_FAILED_ATTEMPTS("hive.mr3.am.task.max.failed.attempts", 3,
         "Max number of attempts for each Task"),
 
+    // high availability
+    MR3_ZOOKEEPER_APPID_NAMESPACE("hive.mr3.zookeeper.appid.namespace", "mr3AppId",
+        "ZooKeeper namespace for sharing Application ID"),
+
     // Kubernetes
     HIVE_MR3_LOCALIZE_SESSION_JARS("hive.mr3.localize.session.jars", true,
         "Localize session jars");

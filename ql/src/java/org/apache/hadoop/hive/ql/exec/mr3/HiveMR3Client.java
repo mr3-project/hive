@@ -18,11 +18,13 @@
 
 package org.apache.hadoop.hive.ql.exec.mr3;
 
+import edu.postech.mr3.api.common.MR3Exception;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.exec.mr3.dag.DAG;
 import org.apache.hadoop.hive.ql.exec.mr3.status.MR3JobRef;
 import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import edu.postech.mr3.DAGAPI;
 import edu.postech.mr3.api.common.MR3Conf;
@@ -36,13 +38,17 @@ public interface HiveMR3Client {
     INITIALIZING, READY, SHUTDOWN
   }
 
+  ApplicationId start() throws MR3Exception;
+
+  void connect(ApplicationId appId) throws MR3Exception;
+
   /**
    * @param dagProto 
    * @param amLocalResources
    * @return MR3JobRef could be used to track MR3 job progress and metrics.
    * @throws Exception
    */
-  MR3JobRef execute(
+  MR3JobRef submitDag(
       DAGAPI.DAGProto dagProto,
       Credentials amCredentials,
       Map<String, LocalResource> amLocalResources,
@@ -56,5 +62,8 @@ public interface HiveMR3Client {
    */
   MR3ClientState getClientState() throws Exception;
 
-  void close(); 
+  // terminateApplication == true: terminate the current Application by shutting down DAGAppMaster
+  void close(boolean terminateApplication);
+
+  boolean isRunningFromApplicationReport() throws Exception;
 }

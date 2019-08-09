@@ -30,6 +30,8 @@ import org.apache.hadoop.hive.ql.exec.mr3.status.MR3JobRefImpl;
 import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
+import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import edu.postech.mr3.DAGAPI;
 import edu.postech.mr3.api.client.DAGClient;
@@ -38,6 +40,7 @@ import edu.postech.mr3.api.client.MR3SessionClient$;
 import edu.postech.mr3.api.client.SessionStatus$;
 import edu.postech.mr3.api.common.MR3Conf;
 import edu.postech.mr3.api.common.MR3Exception;
+import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.tez.dag.api.TezConfiguration;
 import scala.Option;
 
@@ -46,6 +49,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HiveMR3ClientImpl implements HiveMR3Client {
   protected static final Log LOG = LogFactory.getLog(HiveMR3ClientImpl.class);
+
+  // HiveMR3Client can be shared by several threads (from MR3Tasks), and can be closed by any of these
+  // threads at any time. After mr3Client.close() is called, all subsequent calls to mr3Client end up
+  // with IllegalArgumentException from require{} checking.
 
   private final MR3SessionClient mr3Client;
   private final HiveConf hiveConf;
@@ -57,7 +64,7 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
       final Map<String, LocalResource> amLocalResources,
       final Credentials additionalSessionCredentials,
       final Map<String, LocalResource> additionalSessionLocalResources,
-      HiveConf hiveConf) throws MR3Exception {
+      HiveConf hiveConf) {
     this.hiveConf = hiveConf;
 
     MR3Conf mr3Conf = createMr3Conf(hiveConf);
@@ -67,7 +74,15 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
         sessionId, mr3Conf,
         Option.apply(amCredentials), amLrs,
         Option.apply(additionalSessionCredentials), addtlSessionLrs);
+  }
+
+  public ApplicationId start() throws MR3Exception {
     mr3Client.start();
+    return mr3Client.getApplicationId();
+  }
+
+  public void connect(ApplicationId appId) throws MR3Exception {
+    mr3Client.connect(appId);
   }
 
   private MR3Conf createMr3Conf(HiveConf hiveConf) {
@@ -86,8 +101,9 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
         .setBoolean(MR3Conf$.MODULE$.MR3_AM_SESSION_MODE(), true).build();
   }
 
+  // Exception if mr3Client is already closed
   @Override
-  public MR3JobRef execute(
+  public MR3JobRef submitDag(
       final DAGAPI.DAGProto dagProto,
       final Credentials amCredentials,
       final Map<String, LocalResource> amLocalResources,
@@ -101,16 +117,25 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
     return new MR3JobRefImpl(hiveConf, dagClient, workMap, dag, ctx, isShutdown);
   }
 
+  // terminateApplication is irrelevant to whether start() has been called or connect() has been called.
+  // ex. start() --> terminateApplication == false if the current instance is no longer a leader.
+  // ex. connect() --> terminateApplication = true if the current instance has become a new leader.
   @Override
-  public void close() {
+  public void close(boolean terminateApplication) {
     try {
-      mr3Client.shutdownAppMaster();
+      if (terminateApplication) {
+        LOG.info("HiveMR3Client.close() terminates the current Application");
+        mr3Client.shutdownAppMasterToTerminateApplication();
+      }
+      LOG.info("HiveMR3Client.close() closes MR3SessionClient");
       mr3Client.close();
-    } catch (MR3Exception e) {
+    } catch (Exception e) {
+      // Exception if mr3Client is already closed
       LOG.warn("Failed to close MR3Client", e);
     }
   }
 
+  // Exception if mr3Client is already closed
   @Override
   public MR3ClientState getClientState() throws Exception {
     SessionStatus$.Value sessionState = mr3Client.getSessionStatus();
@@ -125,5 +150,24 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
     } else {
       return MR3ClientState.SHUTDOWN;
     }    
+  }
+
+  // Exception if mr3Client is already closed
+  @Override
+  public boolean isRunningFromApplicationReport() throws Exception {
+    ApplicationReport applicationReport = mr3Client.getApplicationReport().getOrElse(null); // == .orNull
+    if (applicationReport == null) {
+      return false;
+    } else {
+      YarnApplicationState state = applicationReport.getYarnApplicationState();
+      switch (state) {
+        case FINISHED:
+        case FAILED:
+        case KILLED:
+          return false;
+        default:
+          return true;
+      }
+    }
   }
 }

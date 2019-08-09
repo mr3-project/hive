@@ -375,6 +375,28 @@ public class HiveServer2 extends CompositeService {
       throw new ServiceException(ie);
     }
 
+    if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      // must call before server.start() because server.start() may start LeaderWatcher which can then be
+      // triggered even before server.start() returns
+      try {
+        // TODO: pass zooKeeperClient 
+        MR3SessionManagerImpl.getInstance().setup(hiveConf, null);
+      } catch (Exception e) {
+        LOG.error("Error in setting up MR3SessionManager", e);
+        throw new ServiceException(e);
+      }
+      //   1. serviceDiscovery == true && activePassiveHA == true: multiple HS2 instances, leader exists
+      //      - use service discovery and share ApplicationID
+      //      - ApplicationConnectionWatcher has been created
+      //      - LeaderWatcher is created when isLeader() is called
+      //   2. serviceDiscovery == true && activePassiveHA == false: multiple HS2 instances, no leader exists
+      //      - only for using service discovery (without sharing ApplicationID)
+      //      - ApplicationConnectionWatcher is not created
+      ///     - isLeader() is never called
+      //   3. serviceDiscovery == false: no ZooKeeper
+      //      - same as in case 2
+    }
+
     // Add a shutdown hook for catching SIGTERM & SIGINT
     ShutdownHookManager.addShutdownHook(() -> hiveServer2.stop());
   }
@@ -877,9 +899,6 @@ public class HiveServer2 extends CompositeService {
           SparkSessionManagerImpl.getInstance().setup(hiveConf);
         }
 
-        if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
-          MR3SessionManagerImpl.getInstance().setup(hiveConf);
-        }
         break;
       } catch (Throwable throwable) {
         if (server != null) {

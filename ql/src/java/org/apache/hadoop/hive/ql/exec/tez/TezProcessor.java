@@ -272,6 +272,7 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
       initializeAndRunProcessor(inputs, outputs);
     }
     // TODO HIVE-14042. In case of an abort request, throw an InterruptedException
+    // implement HIVE-14042 in initializeAndRunProcessor(), not here
   }
 
   protected void initializeAndRunProcessor(Map<String, LogicalInput> inputs,
@@ -312,8 +313,28 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
           originalThrowable = t;
         }
       }
+
+      // Invariant: calls to abort() eventually lead to clearing thread-local cache exactly once.
+      // 1.
+      // rproc.run()/close() may return normally even after abort() is called and rProcLocal.abort() is
+      // executed. In such a case, thread-local cache may be in a corrupted state. Hence, we should raise
+      // InterruptedException by setting originalThrowable to InterruptedException. In this way, we clear
+      // thread-local cache and fail the current TaskAttempt.
+      // 2.
+      // We set this.aborted to true, so that from now on, abort() is ignored to avoid corrupting thread-local
+      // cache (MAP_PLAN/REDUCE_PLAN).
+
+      // 2. set aborted to true
+      boolean prevAborted = aborted.getAndSet(true);
+      // 1. raise InterruptedException if necessary
+      if (prevAborted && originalThrowable == null) {
+        originalThrowable = new InterruptedException("abort() was called, but RecordProcessor successfully returned");
+      }
+
       if (originalThrowable != null) {
         LOG.error(StringUtils.stringifyException(originalThrowable));
+        ObjectCache.clearObjectRegistry();  // clear thread-local cache which may contain MAP/REDUCE_PLAN
+        Utilities.clearWork(jobConf);       // clear thread-local gWorkMap which may contain MAP/REDUCE_PLAN
         if (originalThrowable instanceof InterruptedException) {
           throw (InterruptedException) originalThrowable;
         } else {
@@ -323,19 +344,24 @@ public class TezProcessor extends AbstractLogicalIOProcessor {
     }
   }
 
+  // abort() can be called after run() has returned without throwing Exception.
+  // Calling ObjectCache.clearObjectRegistry() and Utilities.clearWork(jobConf) inside abort() does not make
+  // sense because the caller thread is not the same thread that calls run().
   @Override
   public void abort() {
-    RecordProcessor rProcLocal;
+    RecordProcessor rProcLocal = null;
     synchronized (this) {
       LOG.info("Received abort");
-      aborted.set(true);
-      rProcLocal = rproc;
+      boolean prevAborted = aborted.getAndSet(true);
+      if (!prevAborted) {
+        rProcLocal = rproc;
+      }
     }
     if (rProcLocal != null) {
       LOG.info("Forwarding abort to RecordProcessor");
       rProcLocal.abort();
     } else {
-      LOG.info("RecordProcessor not yet setup. Abort will be ignored");
+      LOG.info("RecordProcessor not yet setup or already completed. Abort will be ignored");
     }
   }
 

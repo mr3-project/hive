@@ -18,20 +18,56 @@
 
 package org.apache.hadoop.hive.ql.exec.mr3.session;
 
+import org.apache.curator.framework.CuratorFramework;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+
+import java.io.IOException;
 
 /**
  * Defines interface for managing multiple MR3Sessions in Hive when multiple users
  * are executing queries simultaneously on MR3 execution engine.
  */
 public interface MR3SessionManager {
+  //
+  // for HiveServer2
+  //
+
   /**
    * Initialize based on given configuration.
    *
    * @param hiveConf
    */
-  void setup(HiveConf hiveConf) throws HiveException;
+  void setup(HiveConf hiveConf, CuratorFramework zooKeeperClient) throws HiveException, IOException;
+
+  //
+  // for HiveServer2 with serviceDiscovery == true && activePassiveHA == true
+  //
+
+  // return ApplicationId.toString
+  // return null if no ApplicationID is currently available
+  // String getCurrentApplication();
+
+  // connect to Application appIdStr
+  // if appIdStr is already set in MR3SessionManager, ignore the call
+  // if another Application is set, close the connection to it (without terminating it)
+  // if unsuccessful, raise HiveException and set the active Application to null
+  void setActiveApplication(String appIdStr) throws HiveException;
+
+  // if appIdStr is not found, ignore the call
+  // should be called only the owner of Application appIdStr
+  // TODO: rename to killApplication()
+  // TODO: rename to killActiveApplication()
+  void closeApplication(String appIdStr);
+
+  boolean checkIfValidApplication(String appIdStr);
+
+  // return ApplicationId.toString
+  String createNewApplication() throws HiveException;
+
+  //
+  // for MR3Task
+  //
 
   boolean getShareMr3Session();
 
@@ -43,17 +79,20 @@ public interface MR3SessionManager {
   MR3Session getSession(HiveConf conf) throws HiveException;
 
   /**
-   * Return the given <i>mr3Session</i> to pool. This is used when the client
-   * still holds references to session and may want to reuse it in future.
-   * When client wants to reuse the session, it should pass it to the <i>getSession</i> method.
-   */
-  void returnSession(MR3Session mr3Session) throws HiveException;
-
-  /**
    * Close the given session and return it to pool. This is used when the client
-   * no longer needs a MR3Session.
+   * no longer needs an MR3Session.
    */
-  void closeSession(MR3Session mr3Session) throws HiveException;
+  void closeSession(MR3Session mr3Session);
+
+  // if mr3Session is alive or unknown, return null
+  // if mr3Session is definitely not alive, ***close it*** and return a new one
+  MR3Session triggerCheckApplicationStatus(MR3Session mr3Session, HiveConf mr3SessionConf) throws Exception;
+
+  //
+  //
+  //
+
+  String getUniqueId();
 
   /**
    * Shutdown the session manager. Also closing up MR3Sessions in pool.

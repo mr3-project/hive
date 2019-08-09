@@ -58,9 +58,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MR3JobMonitor {
 
   private static final String CLASS_NAME = MR3JobMonitor.class.getName();
-  private static final int CHECK_INTERVAL = 1000;
+  private static final int CHECK_INTERVAL = 1000;   // 1000ms = 1 second
   private static final int MAX_RETRY_INTERVAL = 2500;
   private static final int PRINT_INTERVAL = 3000;
+  private static final int MAX_RETRY_GET_DAG_STATUS = 60;
+
+  // 'MAX_RETRY_GET_DAG_STATUS = 60' implies that when DAGAppMaster is killed and restarts,
+  // dagClientGetDagStatusWait() tries calling dagClient.getDagStatusWait() 60 times while waiting 1 second
+  // between calls. If DAGAppMaster restarts within 60 seconds, DAGClient connects to the new DAGAppMaster.
 
   private static final List<DAGClient> shutdownList;
 
@@ -180,15 +185,14 @@ public class MR3JobMonitor {
           context.checkHeartbeaterLockException();
         }
 
-        // assume tht isShutdown can be set to true at any time
+        // assume that isShutdown can be set to true at any time
         if (!isShutdownCalled && isShutdown.get()) {
           console.printInfo("Shutdown requested - calling DAGClient.tryKillDag()");
-          dagClient.tryKillDag();
+          dagClientTryKillDag();
           isShutdownCalled = true;
         }
 
-        scala.Option<DAGStatus> dagStatusWait =
-            dagClient.getDagStatusWait(false, CHECK_INTERVAL);
+        scala.Option<DAGStatus> dagStatusWait = dagClientGetDagStatusWait();
         if (dagStatusWait.isEmpty()) {
           console.printError("DAG already killed and no longer found in DAGAppMaster");
           running = false;
@@ -244,9 +248,9 @@ public class MR3JobMonitor {
       } catch (Exception e) {
         console.printInfo("Exception: " + e.getMessage());
         boolean isInterrupted = hasInterruptedException(e);
-        if (isInterrupted || (++failedCounter % MAX_RETRY_INTERVAL / CHECK_INTERVAL == 0)) {
+        if (isInterrupted || (++failedCounter % (MAX_RETRY_INTERVAL / CHECK_INTERVAL) == 0)) {
           console.printInfo("Killing DAG...");
-          dagClient.tryKillDag();
+          dagClientTryKillDag();
           console.printError("Execution has failed. stack trace: " + ExceptionUtils.getStackTrace(e));
           rc = 1;
           done = true;
@@ -277,6 +281,50 @@ public class MR3JobMonitor {
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_RUN_DAG);
     printSummary(success, dagStatus);
     return rc;
+  }
+
+  private scala.Option<DAGStatus> dagClientGetDagStatusWait() throws InterruptedException {
+    scala.Option<DAGStatus> dagStatusWait = null;
+    int count = 0;
+    while (true) {
+      dagStatusWait = dagClient.getDagStatusWait(false, CHECK_INTERVAL);
+      if (dagStatusWait.isEmpty()) {
+        count++;
+        if (count < MAX_RETRY_GET_DAG_STATUS) {
+          // we wait before calling dagClient.getDagStatusWait() again in case that DAGClient cannot connect
+          // to DAGAppMaster, e.g, when DAGAppMaster has been killed and is in the middle of restarting.
+          console.printError("getDagStatusWait() failed (count = " + count + "), try again in " + CHECK_INTERVAL + "ms");
+          Thread.sleep(CHECK_INTERVAL);   // interrupted if Beeline is killed
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    return dagStatusWait;
+  }
+
+  private void dagClientTryKillDag() {
+    int count = 0;
+    while (count < MAX_RETRY_GET_DAG_STATUS) {
+      boolean success = dagClient.tryKillDag();
+      if (success) {
+        console.printInfo("tryKillDag() succeeded");
+        break;
+      } else {
+        // we wait before calling dagClient.tryKillDag() again in case that DAGClient cannot connect
+        // to DAGAppMaster, e.g, when DAGAppMaster has been killed and is in the middle of restarting.
+        console.printError("tryKillDag() failed (count = " + count + "), try again in " + CHECK_INTERVAL + "ms");
+        try {
+          Thread.sleep(CHECK_INTERVAL);
+        } catch (InterruptedException ex) {
+          console.printError("tryKillDag() interrupted, giving up");
+          break;
+        }
+        count++;
+      }
+    }
   }
 
   private void printSummary(boolean success, DAGStatus status) {

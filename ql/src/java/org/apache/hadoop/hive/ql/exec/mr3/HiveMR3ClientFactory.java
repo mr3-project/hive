@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.hive.ql.exec.mr3;
 
-import edu.postech.mr3.api.common.MR3Exception;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -31,7 +30,7 @@ public class HiveMR3ClientFactory {
   protected static final transient Log LOG = LogFactory.getLog(HiveMR3ClientFactory.class);
 
   public static void initialize(HiveConf hiveConf) {
-    LOG.info("Initializing HiveMR3ClientFactory.");
+    LOG.info("Initializing HiveMR3ClientFactory");
   }
 
   // amLocalResources[]: read-only
@@ -41,9 +40,7 @@ public class HiveMR3ClientFactory {
       Map<String, LocalResource> amLocalResources,
       Credentials additionalSessionCredentials,
       Map<String, LocalResource> additionalSessionLocalResources,
-      HiveConf hiveConf)
-    throws MR3Exception {
-
+      HiveConf hiveConf) {
     return new HiveMR3ClientImpl(
         sessionId,
         amCredentials, amLocalResources,
