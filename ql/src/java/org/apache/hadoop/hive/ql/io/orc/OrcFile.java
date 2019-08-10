@@ -25,7 +25,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.llap.LlapDaemonInfo;
 import org.apache.hadoop.hive.llap.LlapUtil;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
@@ -134,10 +133,10 @@ public final class OrcFile extends org.apache.orc.OrcFile {
     public LlapAwareMemoryManager(Configuration conf) {
       super(conf);
       maxLoad = OrcConf.MEMORY_POOL.getDouble(conf);
-      long memPerExecutor = LlapDaemonInfo.INSTANCE.getMemoryPerExecutor();
+      long memPerExecutor = staticOrcMemory.get().longValue();
       totalMemoryPool = (long) (memPerExecutor * maxLoad);
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Using LLAP memory manager for orc writer. memPerExecutor: {} maxLoad: {} totalMemPool: {}",
+        LOG.info("Using LLAP memory manager for orc writer. memPerExecutor: {} maxLoad: {} totalMemPool: {}",
           LlapUtil.humanReadableByteCount(memPerExecutor), maxLoad, LlapUtil.humanReadableByteCount(totalMemoryPool));
       }
     }
