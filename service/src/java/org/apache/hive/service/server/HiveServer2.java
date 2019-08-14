@@ -627,8 +627,11 @@ public class HiveServer2 extends CompositeService {
     // If we're supporting dynamic service discovery, we'll add the service uri for this
     // HiveServer2 instance to Zookeeper as a znode.
     HiveConf hiveConf = getHiveConf();
-    // For MR3, always allow beeline connections.
-    allowClientSessions();
+    if (hiveConf.getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      allowClientSessions();
+    } else if (!serviceDiscovery || !activePassiveHA) {
+      allowClientSessions();
+    }
     if (serviceDiscovery) {
       try {
         if (activePassiveHA) {
@@ -641,32 +644,31 @@ public class HiveServer2 extends CompositeService {
           }
         }
 
-				// In the original Hive, if activePassiveHA == true, only the Leader HS2 receives all the traffic.
+        // In the original Hive, if activePassiveHA == true, only the Leader HS2 receives all the traffic.
         // In contrast, in the case of Hive-MR3, 'activePassiveHA == true' means that all HS2 instances
         // share the traffic from Beeline connections in order to take advantage of a common MR3 DAGAppMaster.
         //
         // We always call addServerInstanceToZooKeeper() so that ZooKeeper can find all HS2 instances.
-				boolean publishConfigs =
-								hiveConf.getBoolVar(HiveConf.ConfVars.HIVE_SERVER2_ZOOKEEPER_PUBLISH_CONFIGS);
-				String instanceURI = getServerInstanceURI();
-				String znodeData;
-				if (publishConfigs) {
-					// HiveServer2 configs that this instance will publish to ZooKeeper,
-					// so that the clients can read these and configure themselves properly.
-					addConfsToPublish(hiveConf, confsToPublish, getServerInstanceURI());
-					znodeData = Joiner.on(';').withKeyValueSeparator("=").join(confsToPublish);
-				} else {
-					znodeData = instanceURI;
-				}
+        boolean publishConfigs =
+                hiveConf.getBoolVar(HiveConf.ConfVars.HIVE_SERVER2_ZOOKEEPER_PUBLISH_CONFIGS);
+        String instanceURI = getServerInstanceURI();
+        String znodeData;
+        if (publishConfigs) {
+          // HiveServer2 configs that this instance will publish to ZooKeeper,
+          // so that the clients can read these and configure themselves properly.
+          addConfsToPublish(hiveConf, confsToPublish, getServerInstanceURI());
+          znodeData = Joiner.on(';').withKeyValueSeparator("=").join(confsToPublish);
+        } else {
+          znodeData = instanceURI;
+        }
 
-				// Add a Znode to the specified ZooKeeper with name: serverUri=host:port;
-				// version=versionInfo; sequence=sequenceNumber
-				zooKeeperHelper = hiveConf.getZKConfig();
-				String znodePathPrefix = "serverUri=" + instanceURI + ";" +
-								"version=" + HiveVersionInfo.getVersion() + ";" + "sequence=";
-				zooKeeperHelper.addServerInstanceToZooKeeper(znodePathPrefix, znodeData,
-								zooKeeperAclProvider, new DeRegisterWatcher(zooKeeperHelper));
-
+        // Add a Znode to the specified ZooKeeper with name: serverUri=host:port;
+        // version=versionInfo; sequence=sequenceNumber
+        zooKeeperHelper = hiveConf.getZKConfig();
+        String znodePathPrefix = "serverUri=" + instanceURI + ";" +
+                "version=" + HiveVersionInfo.getVersion() + ";" + "sequence=";
+        zooKeeperHelper.addServerInstanceToZooKeeper(znodePathPrefix, znodeData,
+                zooKeeperAclProvider, new DeRegisterWatcher(zooKeeperHelper));
 
       } catch (Exception e) {
         LOG.error("Error adding this HiveServer2 instance to ZooKeeper: ", e);
@@ -720,8 +722,10 @@ public class HiveServer2 extends CompositeService {
       if (parentSession != null) {
         SessionState.setCurrentSessionState(parentSession);
       }
-      if(hiveServer2.getHiveConf().getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+      if (hiveServer2.getHiveConf().getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
         hiveServer2.invokeLeaderWatcher();
+      } else {
+        hiveServer2.allowClientSessions();
       }
       // For MR3, do not call hiveServer2.allowClientSessions() because it is always allowed.
 
@@ -737,6 +741,9 @@ public class HiveServer2 extends CompositeService {
       LOG.info("HS2 instance {} LOST LEADERSHIP. Stopping/Disconnecting tez sessions..", hiveServer2.serviceUri);
       // do not call hiveServer2.closeHiveSessions() because there is no need to close active Beeline connections
       hiveServer2.isLeader.set(false);
+      if (!hiveServer2.getHiveConf().getVar(ConfVars.HIVE_EXECUTION_ENGINE).equals("mr3")) {
+        hiveServer2.closeAndDisallowHiveSessions();
+      }
 
       // resolve futures used for testing
       if (HiveConf.getBoolVar(hiveServer2.getHiveConf(), ConfVars.HIVE_IN_TEST)) {
