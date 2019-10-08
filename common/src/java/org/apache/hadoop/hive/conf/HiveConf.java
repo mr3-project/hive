@@ -4798,7 +4798,11 @@ public class HiveConf extends Configuration {
 
     // Kubernetes
     HIVE_MR3_LOCALIZE_SESSION_JARS("hive.mr3.localize.session.jars", true,
-        "Localize session jars");
+        "Localize session jars"),
+
+    // Compaction using MR3
+    HIVE_MR3_COMPACTION_USING_MR3("hive.mr3.compaction.using.mr3", false,
+        "Enable compaction using mr3. High Availability needs to be enabled.");
 
     public final String varname;
     public final String altName;

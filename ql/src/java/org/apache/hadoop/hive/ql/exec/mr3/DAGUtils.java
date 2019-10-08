@@ -71,6 +71,7 @@ import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.hive.ql.plan.MapWork;
 import org.apache.hadoop.hive.ql.plan.MergeJoinWork;
 import org.apache.hadoop.hive.ql.plan.ReduceWork;
+import org.apache.hadoop.hive.ql.txn.compactor.CompactWork;
 import org.apache.hadoop.hive.ql.plan.TezEdgeProperty;
 import org.apache.hadoop.hive.ql.plan.TezEdgeProperty.EdgeType;
 import org.apache.hadoop.hive.ql.plan.TezWork;
@@ -107,8 +108,10 @@ import org.apache.tez.dag.api.TezConfiguration;
 import org.apache.tez.dag.api.UserPayload;
 import org.apache.tez.dag.library.vertexmanager.InputReadyVertexManager;
 import org.apache.tez.dag.library.vertexmanager.ShuffleVertexManager;
+import org.apache.tez.mapreduce.committer.MROutputCommitter;
 import org.apache.tez.mapreduce.common.MRInputSplitDistributor;
 import org.apache.tez.mapreduce.hadoop.InputSplitInfo;
+import org.apache.tez.mapreduce.output.MROutputLegacy;
 import org.apache.tez.mapreduce.protos.MRRuntimeProtos;
 import org.apache.tez.mapreduce.hadoop.MRHelpers;
 import org.apache.tez.mapreduce.hadoop.MRInputHelpers;
@@ -249,14 +252,16 @@ public class DAGUtils {
 
       if (!crossProductSources.isEmpty()) {
         CartesianProductConfig cpConfig = new CartesianProductConfig(crossProductSources);
-        org.apache.tez.dag.api.VertexManagerPluginDescriptor tezDescriptor = 
+        org.apache.tez.dag.api.VertexManagerPluginDescriptor tezDescriptor =
             org.apache.tez.dag.api.VertexManagerPluginDescriptor
               .create(CartesianProductVertexManager.class.getName())
-              .setUserPayload(cpConfig.toUserPayload(new TezConfiguration(jobConf))); 
-        EntityDescriptor vmPlugin = MR3Utils.convertTezEntityDescriptor(tezDescriptor); 
+              .setUserPayload(cpConfig.toUserPayload(new TezConfiguration(jobConf)));
+        EntityDescriptor vmPlugin = MR3Utils.convertTezEntityDescriptor(tezDescriptor);
         vertex.setVertexManagerPlugin(vmPlugin);
         // parallelism shouldn't be set for cartesian product vertex
       }
+    } else if (work instanceof CompactWork) {
+      vertex = createCompactVertex(jobConf, (CompactWork)work);
     } else {
       // something is seriously wrong if this is happening
       throw new HiveException(ErrorMsg.GENERIC_ERROR.getErrorCodedMsg());
@@ -265,11 +270,12 @@ public class DAGUtils {
     initializeStatsPublisher(jobConf, work); 
 
     // final vertices need to have at least one output
-    if (isFinal) {
-      EntityDescriptor outputCommitterDescriptor = new EntityDescriptor(
+    if (isFinal && !(work instanceof CompactWork)) {
+      EntityDescriptor logicalOutputDescriptor = new EntityDescriptor(
           MROutput.class.getName(),
           org.apache.tez.common.TezUtils.createByteStringFromConf(jobConf));
-      vertex.addDataSink("out_" + work.getName(), outputCommitterDescriptor);
+      // no need to set OutputCommitter, Hive will handle moving temporary files to permanent locations
+      vertex.addDataSink("out_" + work.getName(), logicalOutputDescriptor);
     }
 
     return vertex;
@@ -540,6 +546,36 @@ public class DAGUtils {
     return reducer;
   }
 
+  private Vertex createCompactVertex(JobConf jobConf, CompactWork compactWork) throws Exception {
+    jobConf.set(Utilities.INPUT_NAME, compactWork.getName());
+
+    EntityDescriptor processorDescriptor = new EntityDescriptor(
+            MRMapProcessor.class.getName(), org.apache.tez.common.TezUtils.createByteStringFromConf(jobConf));
+    Resource taskResource = getMapTaskResource(jobConf);
+    String containerEnvironment = getContainerEnvironment(jobConf);
+    String containerJavaOpts = getContainerJavaOpts(jobConf);
+    Vertex.VertexExecutionContext executionContext = createVertexExecutionContext(compactWork);
+
+    Vertex vertex = Vertex.create(compactWork.getName(), processorDescriptor, -1, taskResource,
+            containerEnvironment, containerJavaOpts, true, executionContext);
+
+    Class inputFormatClass = jobConf.getClass("mapred.input.format.class", InputFormat.class);
+    DataSourceDescriptor dataSource =
+            MRInputLegacy.createConfigBuilder(jobConf, inputFormatClass).groupSplits(false).build();
+    DataSource mr3DataSource = MR3Utils.convertTezDataSourceDescriptor(dataSource);
+    vertex.addDataSource("in_" + compactWork.getName(), mr3DataSource);
+
+    EntityDescriptor logicalOutputDescriptor = new EntityDescriptor(
+        MROutputLegacy.class.getName(),
+        org.apache.tez.common.TezUtils.createByteStringFromConf(jobConf));
+    EntityDescriptor outputCommitterDescriptor = new EntityDescriptor(
+        MROutputCommitter.class.getName(),
+        org.apache.tez.common.TezUtils.createByteStringFromConf(jobConf));
+    vertex.addDataSink("out_" + compactWork.getName(), logicalOutputDescriptor, outputCommitterDescriptor);
+
+    return vertex;
+  }
+
   /**
    * Creates and initializes the JobConf object for a given BaseWork object.
    *
@@ -555,10 +591,16 @@ public class DAGUtils {
       return initializeReduceVertexConf(jobConf, context, (ReduceWork)work);
     } else if (work instanceof MergeJoinWork) {
       return initializeMergeJoinVertexConf(jobConf, context, (MergeJoinWork) work);
+    } else if (work instanceof CompactWork) {
+      return initializeCompactVertexConf(jobConf, (CompactWork) work);
     } else {
       assert false;
       return null;
     }
+  }
+
+  private JobConf initializeCompactVertexConf(JobConf jobConf, CompactWork work) {
+    return work.configureVertexConf(jobConf);
   }
 
   private JobConf initializeMergeJoinVertexConf(JobConf jobConf, Context context, MergeJoinWork work) {

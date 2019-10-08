@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.ql.exec.mr3.dag;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.api.records.Resource;
@@ -57,7 +58,8 @@ public class Vertex {
   private final List<Edge> inputEdges = new ArrayList<Edge>();
   private final List<Edge> outputEdges = new ArrayList<Edge>();
   private final Map<String, DataSource> dataSources = new HashMap<String, DataSource>();
-  private final Map<String, EntityDescriptor> dataSinks = new HashMap<String, EntityDescriptor>();
+  private final Map<String, Pair<EntityDescriptor, EntityDescriptor>> dataSinks =
+          new HashMap<String, Pair<EntityDescriptor, EntityDescriptor>>();
 
   private EntityDescriptor vertexManagerPluginDescriptor = null;
 
@@ -142,8 +144,12 @@ public class Vertex {
     return Collections.unmodifiableMap(dataSources);
   }
 
-  public void addDataSink(String name, EntityDescriptor outputCommitterDescriptor) {
-    dataSinks.put(name, outputCommitterDescriptor); 
+  public void addDataSink(String name, EntityDescriptor logicalOutputDescriptor) {
+    addDataSink(name, logicalOutputDescriptor, null);
+  }
+
+  public void addDataSink(String name, EntityDescriptor logicalOutputDescriptor, EntityDescriptor outputCommitterDescriptor) {
+    dataSinks.put(name, Pair.of(logicalOutputDescriptor, outputCommitterDescriptor));
   }
 
   public void addInputEdge(Edge edge) {
@@ -298,12 +304,14 @@ public class Vertex {
   private List<DAGAPI.LeafOutputProto> createLeafOutputProtos() {
     List<DAGAPI.LeafOutputProto> leafOutputProtos = new ArrayList<DAGAPI.LeafOutputProto>();
 
-    // no need to set OutputCommitter, Hive will handle moving temporary files to permanent locations
-    for ( Map.Entry<String, EntityDescriptor> entry: dataSinks.entrySet() ) {
-      DAGAPI.LeafOutputProto leafOutputProto = DAGAPI.LeafOutputProto.newBuilder()
+    for ( Map.Entry<String, Pair<EntityDescriptor, EntityDescriptor>> entry: dataSinks.entrySet() ) {
+      DAGAPI.LeafOutputProto.Builder builder = DAGAPI.LeafOutputProto.newBuilder()
           .setName(entry.getKey())
-          .setLogicalOutput(entry.getValue().createEntityDescriptorProto())
-          .build();
+          .setLogicalOutput(entry.getValue().getLeft().createEntityDescriptorProto());
+      if (entry.getValue().getRight() != null) {
+        builder.setOutputCommitter(entry.getValue().getRight().createEntityDescriptorProto());
+      }
+      DAGAPI.LeafOutputProto leafOutputProto = builder.build();
       leafOutputProtos.add(leafOutputProto);
     }
 

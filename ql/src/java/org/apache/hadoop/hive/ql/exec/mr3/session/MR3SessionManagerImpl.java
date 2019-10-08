@@ -47,6 +47,7 @@ public class MR3SessionManagerImpl implements MR3SessionManager {
   // guard with synchronize{}
   private HiveConf hiveConf = null;
   private boolean initializedClientFactory = false;
+  private boolean initializedSessionManager = false;
   private Set<MR3Session> createdSessions = new HashSet<MR3Session>();
 
   // 1. serviceDiscovery == true && activePassiveHA == true: multiple HS2 instances, leader exists
@@ -80,10 +81,20 @@ public class MR3SessionManagerImpl implements MR3SessionManager {
   //
 
   // called directly from HiveServer2, in which case hiveConf comes from HiveSever2
-  // called from nowhere else
+  // called from MetaStore for compaction
+  // MR3SessionManager is provided with zooKeeperClient only once during its lifetime. Even in the case that
+  // zooKeeperClient fails, MR3SessionManager can continue to connect to DAGAppMaster. It just cannot call
+  // triggerCheckApplicationStatus() any more, so the effect is limited (e.g., other HiveServer2 instances
+  // may call triggerCheckApplicationStatus()).
   @Override
-  public synchronized void setup(
+  public synchronized boolean setup(
         HiveConf hiveConf, CuratorFramework zooKeeperClient) throws HiveException, IOException {
+    // we check initializedSessionManager because setup() can be called from both HiveServer2 and Metastore
+    // if Metastore is embedded in HiveServer2 (when hive.metastore.uris is set to an empty string)
+    if (initializedSessionManager) {
+      return false;
+    }
+
     LOG.info("Setting up MR3SessionManager");
     this.hiveConf = hiveConf;
 
@@ -123,6 +134,9 @@ public class MR3SessionManagerImpl implements MR3SessionManager {
 
     serverUniqueId = UUID.randomUUID().toString();
     serverUniqueId = serverUniqueId.substring(serverUniqueId.length() - 4);
+
+    initializedSessionManager = true;
+    return true;
   }
 
   //

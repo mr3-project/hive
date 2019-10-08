@@ -38,7 +38,7 @@ public interface MR3SessionManager {
    *
    * @param hiveConf
    */
-  void setup(HiveConf hiveConf, CuratorFramework zooKeeperClient) throws HiveException, IOException;
+  boolean setup(HiveConf hiveConf, CuratorFramework zooKeeperClient) throws HiveException, IOException;
 
   //
   // for HiveServer2 with serviceDiscovery == true && activePassiveHA == true

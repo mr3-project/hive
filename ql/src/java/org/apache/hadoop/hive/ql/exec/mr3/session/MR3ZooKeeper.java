@@ -20,13 +20,12 @@ package org.apache.hadoop.hive.ql.exec.mr3.session;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.exec.mr3.MR3ZooKeeperUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class MR3ZooKeeper {
   private static Logger LOG = LoggerFactory.getLogger(MR3ZooKeeper.class);
-
-  public static final String appIdCheckRequestPath = "/lastAppIdCheckRequestTimestamp";
 
   private String namespacePath;
   private CuratorFramework zooKeeperClient;
@@ -39,7 +38,7 @@ public class MR3ZooKeeper {
 
   public void triggerCheckApplicationStatus() {
     String currentTime = new Long(System.currentTimeMillis()).toString();
-    String path = namespacePath + appIdCheckRequestPath;
+    String path = namespacePath + MR3ZooKeeperUtils.APP_ID_CHECK_REQUEST_PATH;
     try {
       if (zooKeeperClient.checkExists().forPath(path) == null) {
         zooKeeperClient.create().forPath(path, currentTime.getBytes());

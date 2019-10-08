@@ -337,7 +337,6 @@ public class MR3Task {
     JSONObject json = new JSONObject().put("context", "Hive").put("description", context.getCmd());
     String dagInfo = json.toString();
     Credentials dagCredentials = jobConf.getCredentials();
-    DAGAccessControls dagAccessControls = getAccessControlsForCurrentUser();
 
     // if doAs == true,
     //   UserGroupInformation.getCurrentUser() == the user from Beeline (auth:PROXY)
@@ -346,7 +345,7 @@ public class MR3Task {
     //   UserGroupInformation.getCurrentUser() == the user from HiveServer2 (auth:KERBEROS)
     //   UserGroupInformation.getCurrentUser() does not hold HIVE_DELEGATION_TOKEN (which is unnecessary)
 
-    DAG dag = DAG.create(dagName, dagInfo, dagCredentials, dagAccessControls);
+    DAG dag = DAG.create(dagName, dagInfo, dagCredentials);
     if (LOG.isDebugEnabled()) {
       LOG.debug("DagInfo: " + dagInfo);
     }
@@ -396,15 +395,6 @@ public class MR3Task {
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.MR3_BUILD_DAG);
     return dag;
-  }
-
-  private DAGAccessControls getAccessControlsForCurrentUser() {
-    // get current user
-    String currentUser = SessionState.getUserFromAuthenticator();
-    if(LOG.isDebugEnabled()) {
-      LOG.debug("Setting MR3 DAG access for " + currentUser);
-    }
-    return new DAGAccessControls(currentUser, currentUser);
   }
 
   private void buildVertexGroupEdges(

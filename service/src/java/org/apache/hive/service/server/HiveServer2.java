@@ -68,6 +68,7 @@ import org.apache.hadoop.hive.metastore.api.WMPool;
 import org.apache.hadoop.hive.metastore.api.WMResourcePlan;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.ql.cache.results.QueryResultsCache;
+import org.apache.hadoop.hive.ql.exec.mr3.MR3ZooKeeperUtils;
 import org.apache.hadoop.hive.ql.exec.mr3.session.MR3SessionManagerImpl;
 import org.apache.hadoop.hive.ql.exec.mr3.session.MR3ZooKeeper;
 import org.apache.hadoop.hive.ql.exec.spark.session.SparkSessionManagerImpl;
@@ -1390,8 +1391,9 @@ public class HiveServer2 extends CompositeService {
   }
 
   private abstract class ApplicationWatcher implements CuratorWatcher {
-    private static final String appIdPath = "/appId";
-    private static final String appIdLockPath = "/appIdLock";
+    private static final String appIdPath = MR3ZooKeeperUtils.APP_ID_PATH;
+    private static final String appIdLockPath = MR3ZooKeeperUtils.APP_ID_LOCK_PATH;
+    private static final String appIdCheckRequestPath = MR3ZooKeeperUtils.APP_ID_CHECK_REQUEST_PATH;
 
     private InterProcessMutex appIdLock;
     private String namespace;
@@ -1438,7 +1440,7 @@ public class HiveServer2 extends CompositeService {
 
     protected void registerWatcher(CuratorWatcher watcher, boolean isLeaderWatcher) throws Exception {
       if (isLeaderWatcher) {
-        HiveServer2.this.zooKeeperClient.checkExists().usingWatcher(watcher).forPath(namespace + MR3ZooKeeper.appIdCheckRequestPath);
+        HiveServer2.this.zooKeeperClient.checkExists().usingWatcher(watcher).forPath(namespace + appIdCheckRequestPath);
       } else {
         HiveServer2.this.zooKeeperClient.checkExists().usingWatcher(watcher).forPath(namespace + appIdPath);
       }
