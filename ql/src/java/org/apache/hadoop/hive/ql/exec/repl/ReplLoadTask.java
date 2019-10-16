@@ -91,7 +91,7 @@ public class ReplLoadTask extends Task<ReplLoadWork> implements Serializable {
   }
 
   @Override
-  protected int execute(DriverContext driverContext) {
+  public int execute(DriverContext driverContext) {
     Task<? extends Serializable> rootTask = work.getRootTask();
     if (rootTask != null) {
       rootTask.setChildTasks(null);
@@ -149,9 +149,7 @@ public class ReplLoadTask extends Task<ReplLoadWork> implements Serializable {
         switch (next.eventType()) {
         case Database:
           DatabaseEvent dbEvent = (DatabaseEvent) next;
-          dbTracker =
-              new LoadDatabase(context, dbEvent, work.dbNameToLoadIn, work.tableNameToLoadIn, loadTaskTracker)
-                  .tasks();
+          dbTracker = new LoadDatabase(context, dbEvent, work.dbNameToLoadIn, loadTaskTracker).tasks();
           loadTaskTracker.update(dbTracker);
           if (work.hasDbState()) {
             loadTaskTracker.update(updateDatabaseLastReplID(maxTasks, context, scope));
@@ -174,8 +172,7 @@ public class ReplLoadTask extends Task<ReplLoadWork> implements Serializable {
               listing before providing the lower level listing. This is also required such that
               the dbTracker /  tableTracker are setup correctly always.
            */
-          TableContext tableContext =
-              new TableContext(dbTracker, work.dbNameToLoadIn, work.tableNameToLoadIn);
+          TableContext tableContext = new TableContext(dbTracker, work.dbNameToLoadIn);
           TableEvent tableEvent = (TableEvent) next;
           LoadTable loadTable = new LoadTable(tableEvent, context, iterator.replLogger(),
                                               tableContext, loadTaskTracker);
@@ -215,8 +212,7 @@ public class ReplLoadTask extends Task<ReplLoadWork> implements Serializable {
               hence we know here that the table should exist and there should be a lastPartitionName
           */
           PartitionEvent event = (PartitionEvent) next;
-          TableContext tableContext = new TableContext(dbTracker, work.dbNameToLoadIn,
-              work.tableNameToLoadIn);
+          TableContext tableContext = new TableContext(dbTracker, work.dbNameToLoadIn);
           LoadPartitions loadPartitions =
               new LoadPartitions(context, iterator.replLogger(), tableContext, loadTaskTracker,
                       event.asTableEvent(), work.dbNameToLoadIn, event.lastPartitionReplicated());

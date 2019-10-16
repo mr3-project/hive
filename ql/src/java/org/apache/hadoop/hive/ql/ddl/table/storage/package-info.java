@@ -15,19 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hive.common;
 
-/**
- * A class that defines the constant strings used by the replication implementation.
- */
-
-public class ReplConst {
-
-  /**
-   * The constant that denotes the table data location is changed to different path. This indicates
-   * Metastore to update corresponding path in Partitions and also need to delete old path.
-   */
-  public static final String REPL_DATA_LOCATION_CHANGED = "REPL_DATA_LOCATION_CHANGED";
-
-  public static final String TRUE = "true";
-}
+/** Storage related DDL operation descriptions and operations. */
+package org.apache.hadoop.hive.ql.ddl.table.storage;

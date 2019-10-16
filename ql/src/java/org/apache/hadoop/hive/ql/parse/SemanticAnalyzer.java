@@ -103,6 +103,7 @@ import org.apache.hadoop.hive.ql.cache.results.QueryResultsCache;
 import org.apache.hadoop.hive.ql.ddl.DDLWork2;
 import org.apache.hadoop.hive.ql.ddl.table.creation.CreateTableDesc;
 import org.apache.hadoop.hive.ql.ddl.table.creation.CreateTableLikeDesc;
+import org.apache.hadoop.hive.ql.ddl.table.misc.AlterTableUnsetPropertiesDesc;
 import org.apache.hadoop.hive.ql.ddl.table.misc.PreInsertTableDesc;
 import org.apache.hadoop.hive.ql.ddl.view.CreateViewDesc;
 import org.apache.hadoop.hive.ql.exec.AbstractMapJoinOperator;
@@ -195,8 +196,6 @@ import org.apache.hadoop.hive.ql.parse.WindowingSpec.WindowFunctionSpec;
 import org.apache.hadoop.hive.ql.parse.WindowingSpec.WindowSpec;
 import org.apache.hadoop.hive.ql.parse.WindowingSpec.WindowType;
 import org.apache.hadoop.hive.ql.plan.AggregationDesc;
-import org.apache.hadoop.hive.ql.plan.AlterTableDesc;
-import org.apache.hadoop.hive.ql.plan.AlterTableDesc.AlterTableTypes;
 import org.apache.hadoop.hive.ql.plan.DDLWork;
 import org.apache.hadoop.hive.ql.plan.DynamicPartitionCtx;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -233,6 +232,7 @@ import org.apache.hadoop.hive.ql.plan.TableDesc;
 import org.apache.hadoop.hive.ql.plan.TableScanDesc;
 import org.apache.hadoop.hive.ql.plan.UDTFDesc;
 import org.apache.hadoop.hive.ql.plan.UnionDesc;
+import org.apache.hadoop.hive.ql.plan.mapper.AuxOpTreeSignature;
 import org.apache.hadoop.hive.ql.plan.ptf.OrderExpressionDef;
 import org.apache.hadoop.hive.ql.plan.ptf.PTFExpressionDef;
 import org.apache.hadoop.hive.ql.plan.ptf.PartitionedTableFunctionDef;
@@ -250,6 +250,7 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPOr;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDFSurrogateKey;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDTF;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDTFInline;
+import org.apache.hadoop.hive.ql.util.DirectionUtils;
 import org.apache.hadoop.hive.ql.util.ResourceDownloader;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -847,13 +848,13 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     if (isInsertInto(qbp, dest)) {
       ASTNode tblAst = qbp.getDestForClause(dest);
       String tableName = getUnescapedName((ASTNode) tblAst.getChild(0));
-      Table targetTable = null;
+      Table targetTable;
       try {
         if (isValueClause(selectExpr)) {
-          targetTable = db.getTable(tableName, false);
+          targetTable = getTableObjectByName(tableName);
           replaceDefaultKeyword((ASTNode) selectExpr.getChild(0).getChild(0).getChild(1), targetTable, qbp.getDestSchemaForClause(dest));
         } else if (updating(dest)) {
-          targetTable = db.getTable(tableName, false);
+          targetTable = getTableObjectByName(tableName);
           replaceDefaultKeywordForUpdate(selectExpr, targetTable);
         }
       } catch (Exception e) {
@@ -1826,7 +1827,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
           }
           Table table = null;
           try {
-            table = this.getTableObjectByName(tableName);
+            table = getTableObjectByName(tableName);
           } catch (HiveException ex) {
             throw new SemanticException(ex);
           }
@@ -1916,11 +1917,10 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
         throw new SemanticException(generateErrorMessage(tabColName,
             "Duplicate column name detected in " + fullTableName + " table schema specification"));
       }
-      Table targetTable = null;
+      Table targetTable;
       try {
-        targetTable = db.getTable(fullTableName, false);
-      }
-      catch (HiveException ex) {
+        targetTable = getTableObjectByName(fullTableName);
+      } catch (HiveException ex) {
         LOG.error("Error processing HiveParser.TOK_DESTINATION: " + ex.getMessage(), ex);
         throw new SemanticException(ex);
       }
@@ -2106,8 +2106,15 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       // Get table details from tabNameToTabObject cache
       Table tab = getTableObjectByName(tabName, false);
       if (tab != null) {
-        // do a deep copy, in case downstream changes it.
-        tab = new Table(tab.getTTable().deepCopy());
+        // copy table object in case downstream changes it
+        Table newTab = new Table(tab.getTTable().deepCopy());
+        // copy constraints, we do not need deep copy as
+        // they should not be changed
+        newTab.setPrimaryKeyInfo(tab.getPrimaryKeyInfo());
+        newTab.setForeignKeyInfo(tab.getForeignKeyInfo());
+        newTab.setUniqueKeyInfo(tab.getUniqueKeyInfo());
+        newTab.setNotNullConstraint(tab.getNotNullConstraint());
+        tab = newTab;
       }
       if (tab == null ||
           tab.getDbName().equals(SessionState.get().getCurrentDatabase())) {
@@ -3475,6 +3482,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     Operator output = putOpInsertMap(OperatorFactory.getAndMakeChild(
         new FilterDesc(filterCond, false), new RowSchema(
             inputRR.getColumnInfos()), input), inputRR);
+
+    ctx.getPlanMapper().link(condn, output);
 
     if (LOG.isDebugEnabled()) {
       LOG.debug("Created Filter Plan for " + qb.getId() + " row schema: "
@@ -6898,8 +6907,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       StringBuilder order = new StringBuilder();
       StringBuilder nullOrder = new StringBuilder();
       for (int sortOrder : sortOrders) {
-        order.append(sortOrder == BaseSemanticAnalyzer.HIVE_COLUMN_ORDER_ASC ? '+' : '-');
-        nullOrder.append(sortOrder == BaseSemanticAnalyzer.HIVE_COLUMN_ORDER_ASC ? 'a' : 'z');
+        order.append(DirectionUtils.codeToSign(sortOrder));
+        nullOrder.append(sortOrder == DirectionUtils.ASCENDING_CODE ? 'a' : 'z');
       }
       input = genReduceSinkPlan(input, partnCols, sortCols, order.toString(), nullOrder.toString(),
           maxReducers, (AcidUtils.isFullAcidTable(dest_tab) ?
@@ -6949,13 +6958,11 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
   private void setStatsForNonNativeTable(String dbName, String tableName) throws SemanticException {
     String qTableName = DDLSemanticAnalyzer.getDotName(new String[] { dbName,
         tableName });
-    AlterTableDesc alterTblDesc = new AlterTableDesc(AlterTableTypes.DROPPROPS, null, false);
     HashMap<String, String> mapProp = new HashMap<>();
     mapProp.put(StatsSetupConst.COLUMN_STATS_ACCURATE, null);
-    alterTblDesc.setOldName(qTableName);
-    alterTblDesc.setProps(mapProp);
-    alterTblDesc.setDropIfExists(true);
-    this.rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(), alterTblDesc)));
+    AlterTableUnsetPropertiesDesc alterTblDesc = new AlterTableUnsetPropertiesDesc(qTableName, null, null, false,
+        mapProp, false, null);
+    this.rootTasks.add(TaskFactory.get(new DDLWork2(getInputs(), getOutputs(), alterTblDesc)));
   }
 
 
@@ -8015,16 +8022,18 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
   }
 
   private void setWriteIdForSurrogateKeys(LoadTableDesc ltd, Operator input) throws SemanticException {
-    Map<String, ExprNodeDesc> columnExprMap = input.getConf().getColumnExprMap();
-    if (ltd == null || columnExprMap == null) {
+    if (ltd == null) {
       return;
     }
 
-    for (ExprNodeDesc desc : columnExprMap.values()) {
-      if (desc instanceof ExprNodeGenericFuncDesc) {
-        GenericUDF genericUDF = ((ExprNodeGenericFuncDesc)desc).getGenericUDF();
-        if (genericUDF instanceof GenericUDFSurrogateKey) {
-          ((GenericUDFSurrogateKey)genericUDF).setWriteId(ltd.getWriteId());
+    Map<String, ExprNodeDesc> columnExprMap = input.getConf().getColumnExprMap();
+    if (columnExprMap != null) {
+      for (ExprNodeDesc desc : columnExprMap.values()) {
+        if (desc instanceof ExprNodeGenericFuncDesc) {
+          GenericUDF genericUDF = ((ExprNodeGenericFuncDesc)desc).getGenericUDF();
+          if (genericUDF instanceof GenericUDFSurrogateKey) {
+            ((GenericUDFSurrogateKey)genericUDF).setWriteId(ltd.getWriteId());
+          }
         }
       }
     }
@@ -11998,8 +12007,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     return rewrittenQuery;
   }
 
-  private static void walkASTMarkTABREF(TableMask tableMask, ASTNode ast, Set<String> cteAlias,
-                                        Context ctx, Hive db, Map<String, Table> tabNameToTabObject, Set<Integer> ignoredTokens)
+  private void walkASTMarkTABREF(TableMask tableMask, ASTNode ast, Set<String> cteAlias,
+      Context ctx, Hive db, Map<String, Table> tabNameToTabObject, Set<Integer> ignoredTokens)
       throws SemanticException {
     Queue<Node> queue = new LinkedList<>();
     queue.add(ast);
@@ -12041,9 +12050,16 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
           continue;
         }
 
-        Table table = getTable(db, tabIdName, tabNameToTabObject);
+        Table table = null;
+        try {
+          table = getTableObjectByName(tabIdName, false);
+        } catch (HiveException e) {
+          // This should not happen.
+          throw new SemanticException("Got exception though getTableObjectByName method should ignore it");
+        }
         if (table == null) {
           // Table may not be found when materialization of CTE is on.
+          STATIC_LOG.debug("Table " + tabIdName + " is not found in walkASTMarkTABREF.");
           continue;
         }
 
@@ -12051,9 +12067,10 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
           // When we are querying a materialized view directly, we check whether the source tables
           // do not apply any policies.
           for (String qName : table.getCreationMetadata().getTablesUsed()) {
-            table = getTable(db, qName, tabNameToTabObject);
-            if (table == null) {
-              // This should not happen
+            try {
+              table = getTableObjectByName(qName, true);
+            } catch (HiveException e) {
+              // This should not happen.
               throw new SemanticException("Table " + qName + " not found when trying to obtain it to check masking/filtering " +
                   "policies");
             }
@@ -12108,22 +12125,6 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     }
   }
 
-  private static Table getTable(Hive db, String tabIdName, Map<String, Table> tabNameToTabObject) {
-    Table table = null;
-    try {
-      if (!tabNameToTabObject.containsKey(tabIdName)) {
-        table = db.getTable(tabIdName, true);
-        tabNameToTabObject.put(tabIdName, table);
-      } else {
-        table = tabNameToTabObject.get(tabIdName);
-      }
-    } catch (HiveException e) {
-      // Table may not be found when materialization of CTE is on.
-      STATIC_LOG.debug("Table " + tabIdName + " is not found in walkASTMarkTABREF.");
-    }
-    return table;
-  }
-
   private static void extractColumnInfos(Table table, List<String> colNames, List<String> colTypes) {
     for (FieldSchema col : table.getAllCols()) {
       colNames.add(col.getName());
@@ -12136,8 +12137,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
   // the table needs to be masked or filtered.
   // For the replacement, we leverage the methods that are used for
   // unparseTranslator.
-  protected static ASTNode rewriteASTWithMaskAndFilter(TableMask tableMask, ASTNode ast, TokenRewriteStream tokenRewriteStream,
-                                                       Context ctx, Hive db, Map<String, Table> tabNameToTabObject, Set<Integer> ignoredTokens)
+  protected ASTNode rewriteASTWithMaskAndFilter(TableMask tableMask, ASTNode ast, TokenRewriteStream tokenRewriteStream,
+      Context ctx, Hive db, Map<String, Table> tabNameToTabObject, Set<Integer> ignoredTokens)
       throws SemanticException {
     // 1. collect information about CTE if there is any.
     // The base table of CTE should be masked.
@@ -12531,6 +12532,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       setTableAccessInfo(tableAccessAnalyzer.analyzeTableAccess());
     }
 
+    AuxOpTreeSignature.linkAuxSignatures(pCtx);
     // 7. Perform Logical optimization
     if (LOG.isDebugEnabled()) {
       LOG.debug("Before logical optimization\n" + Operator.toString(pCtx.getTopOps().values()));
@@ -12578,7 +12580,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       rootTasks.stream()
           .filter(task -> task.getWork() instanceof DDLWork2)
           .map(task -> (DDLWork2) task.getWork())
-          .filter(ddlWork -> ddlWork.getDDLDesc() != null)
+          .filter(ddlWork -> ddlWork.getDDLDesc() instanceof PreInsertTableDesc)
           .map(ddlWork -> (PreInsertTableDesc)ddlWork.getDDLDesc())
           .map(ddlPreInsertTask -> new InsertCommitHookDesc(ddlPreInsertTask.getTable(),
               ddlPreInsertTask.isOverwrite()))
@@ -12827,7 +12829,8 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       }
 
       qualifiedColName = rr.reverseLookup(colInfo.getInternalName());
-      if (useTabAliasIfAvailable && qualifiedColName[0] != null && !qualifiedColName[0].isEmpty()) {
+      // __u<n> is a UNION ALL placeholder name
+      if (useTabAliasIfAvailable && qualifiedColName[0] != null && (!qualifiedColName[0].isEmpty()) && (!qualifiedColName[0].startsWith("__u"))) {
         colName = qualifiedColName[0] + "." + qualifiedColName[1];
       } else {
         colName = qualifiedColName[1];
@@ -13810,7 +13813,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
           if (DUMMY_TABLE.equals(alias)) {
             continue;
           }
-          Table table = this.getTableObjectByName(qb.getTabNameForAlias(alias));
+          Table table = getTableObjectByName(qb.getTabNameForAlias(alias));
           if (table.isTemporary()) {
             throw new SemanticException("View definition references temporary table " + alias);
           }
@@ -14040,7 +14043,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
     String tableName = getUnescapedName((ASTNode) tree.getChild(0).getChild(0));
     Table tbl;
     try {
-      tbl = this.getTableObjectByName(tableName);
+      tbl = getTableObjectByName(tableName);
     } catch (InvalidTableException e) {
       throw new SemanticException(ErrorMsg.INVALID_TABLE.getMsg(tableName), e);
     }
