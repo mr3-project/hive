@@ -16,58 +16,29 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hive.ql.plan;
+package org.apache.hadoop.hive.ql.ddl.function;
 
 import java.io.Serializable;
-import java.util.List;
 
+import org.apache.hadoop.hive.ql.ddl.DDLDesc;
+import org.apache.hadoop.hive.ql.plan.Explain;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 
 /**
- * CreateMacroDesc.
- *
+ * DDL task description for DROP TEMPORARY MACRO commands.
  */
-@Explain(displayName = "Create Macro", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-public class CreateMacroDesc implements Serializable {
+@Explain(displayName = "Drop Macro", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+public class DropMacroDesc implements DDLDesc, Serializable {
   private static final long serialVersionUID = 1L;
 
-  private String macroName;
-  private List<String> colNames;
-  private List<TypeInfo> colTypes;
-  private ExprNodeDesc body;
+  private final String name;
 
-  /**
-   * For serialization only.
-   */
-  public CreateMacroDesc() {
-  }
-
-  public CreateMacroDesc(String macroName,
-                         List<String> colNames,
-                         List<TypeInfo> colTypes,
-                         ExprNodeDesc body) {
-    this.macroName = macroName;
-    this.colNames = colNames;
-    this.colTypes = colTypes;
-    this.body = body;
+  public DropMacroDesc(String name) {
+    this.name = name;
   }
 
   @Explain(displayName = "name", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-  public String getMacroName() {
-    return macroName;
+  public String getName() {
+    return name;
   }
-
-  public ExprNodeDesc getBody() {
-    return body;
-  }
-
-  public List<String> getColNames() {
-    return colNames;
-  }
-
-  public List<TypeInfo> getColTypes() {
-    return colTypes;
-  }
-
 }

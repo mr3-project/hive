@@ -637,7 +637,7 @@ public final class FunctionRegistry {
     Set<String> allFuncs = getFunctionNames();
     String[] subpatterns = funcPatternStr.trim().split("\\|");
     for (String subpattern : subpatterns) {
-      subpattern = "(?i)" + subpattern.replaceAll("\\*", ".*");
+      subpattern = "(?i)" + UDFLike.likePatternToRegExp(subpattern);
       try {
         Pattern patternObj = Pattern.compile(subpattern);
         for (String funcName : allFuncs) {
@@ -1657,6 +1657,14 @@ public final class FunctionRegistry {
    */
   public static boolean isOpPreserveInputName(ExprNodeDesc desc) {
     return isOpCast(desc);
+  }
+
+  public static boolean isOpBetween(ExprNodeDesc desc) {
+    return GenericUDFBetween.class == getGenericUDFClassFromExprDesc(desc);
+  }
+
+  public static boolean isOpInBloomFilter(ExprNodeDesc desc) {
+    return GenericUDFInBloomFilter.class == getGenericUDFClassFromExprDesc(desc);
   }
 
   /**

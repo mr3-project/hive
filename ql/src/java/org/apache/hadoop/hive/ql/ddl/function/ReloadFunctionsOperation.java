@@ -16,11 +16,30 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hive.ql.plan;
+package org.apache.hadoop.hive.ql.ddl.function;
 
-import java.io.Serializable;
+import org.apache.hadoop.hive.ql.ddl.DDLOperationContext;
+import org.apache.hadoop.hive.ql.ddl.DDLOperation;
+import org.apache.hadoop.hive.ql.metadata.Hive;
+import org.apache.hadoop.hive.ql.metadata.HiveException;
 
-@Explain(displayName = "Reload Function")
-public class ReloadFunctionDesc implements Serializable {
-  private static final long serialVersionUID = 1L;
+/**
+ * Operation process of reloading the functions.
+ */
+public class ReloadFunctionsOperation extends DDLOperation<ReloadFunctionsDesc> {
+  public ReloadFunctionsOperation(DDLOperationContext context, ReloadFunctionsDesc desc) {
+    super(context, desc);
+  }
+
+  @Override
+  public int execute() throws HiveException {
+    try {
+      Hive.get().reloadFunctions();
+      return 0;
+    } catch (Exception e) {
+      context.getTask().setException(e);
+      LOG.error("Failed to reload functions", e);
+      return 1;
+    }
+  }
 }

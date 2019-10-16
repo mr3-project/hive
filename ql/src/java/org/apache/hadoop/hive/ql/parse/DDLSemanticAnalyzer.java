@@ -74,7 +74,10 @@ import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.ddl.DDLDesc;
 import org.apache.hadoop.hive.ql.ddl.DDLDesc.DDLDescWithWriteId;
 import org.apache.hadoop.hive.ql.ddl.DDLWork;
-import org.apache.hadoop.hive.ql.ddl.database.AlterDatabaseDesc;
+import org.apache.hadoop.hive.ql.ddl.database.AbstractAlterDatabaseDesc;
+import org.apache.hadoop.hive.ql.ddl.database.AlterDatabaseSetLocationDesc;
+import org.apache.hadoop.hive.ql.ddl.database.AlterDatabaseSetOwnerDesc;
+import org.apache.hadoop.hive.ql.ddl.database.AlterDatabaseSetPropertiesDesc;
 import org.apache.hadoop.hive.ql.ddl.database.CreateDatabaseDesc;
 import org.apache.hadoop.hive.ql.ddl.database.DescDatabaseDesc;
 import org.apache.hadoop.hive.ql.ddl.database.DropDatabaseDesc;
@@ -811,11 +814,11 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         throw new SemanticException("Unrecognized token in CREATE DATABASE statement");
       }
     }
-    AlterDatabaseDesc alterDesc = new AlterDatabaseDesc(dbName, dbProps, null);
+    AlterDatabaseSetPropertiesDesc alterDesc = new AlterDatabaseSetPropertiesDesc(dbName, dbProps, null);
     addAlterDbDesc(alterDesc);
   }
 
-  private void addAlterDbDesc(AlterDatabaseDesc alterDesc) throws SemanticException {
+  private void addAlterDbDesc(AbstractAlterDatabaseDesc alterDesc) throws SemanticException {
     Database database = getDatabase(alterDesc.getDatabaseName());
     outputs.add(new WriteEntity(database, WriteEntity.WriteType.DDL_NO_LOCK));
     rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(), alterDesc)));
@@ -835,7 +838,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       throw new SemanticException("Owner type " + nullCmdMsg);
     }
 
-    AlterDatabaseDesc alterDesc = new AlterDatabaseDesc(dbName, principalDesc, null);
+    AlterDatabaseSetOwnerDesc alterDesc = new AlterDatabaseSetOwnerDesc(dbName, principalDesc, null);
     addAlterDbDesc(alterDesc);
   }
 
@@ -843,7 +846,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
     String dbName = getUnescapedName((ASTNode) ast.getChild(0));
     String newLocation = unescapeSQLString(ast.getChild(1).getText());
     addLocationToOutputs(newLocation);
-    AlterDatabaseDesc alterDesc = new AlterDatabaseDesc(dbName, newLocation);
+    AlterDatabaseSetLocationDesc alterDesc = new AlterDatabaseSetLocationDesc(dbName, newLocation);
     addAlterDbDesc(alterDesc);
   }
 
@@ -1992,10 +1995,7 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
   private void analyzeAlterTablePartMergeFiles(ASTNode ast,
       String tableName, HashMap<String, String> partSpec)
       throws SemanticException {
-    AlterTableConcatenateDesc mergeDesc = new AlterTableConcatenateDesc(
-        tableName, partSpec);
 
-    List<Path> inputDir = new ArrayList<Path>();
     Path oldTblPartLoc = null;
     Path newTblPartLoc = null;
     Table tblObj = null;
@@ -2016,7 +2016,6 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         rootTasks.add(TaskFactory.get(new DDLWork(getInputs(), getOutputs(), desc)));
         return;
       }
-      mergeDesc.setTableDesc(Utilities.getTableDesc(tblObj));
 
       List<String> bucketCols = null;
       Class<? extends InputFormat> inputFormatClass = null;
@@ -2061,11 +2060,9 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
       }
 
       // throw a HiveException for other than rcfile and orcfile.
-      if (!((inputFormatClass.equals(RCFileInputFormat.class) ||
-          (inputFormatClass.equals(OrcInputFormat.class))))) {
+      if (!(inputFormatClass.equals(RCFileInputFormat.class) || inputFormatClass.equals(OrcInputFormat.class))) {
         throw new SemanticException(ErrorMsg.CONCATENATE_UNSUPPORTED_FILE_FORMAT.getMsg());
       }
-      mergeDesc.setInputFormatClass(inputFormatClass);
 
       // throw a HiveException if the table/partition is bucketized
       if (bucketCols != null && bucketCols.size() > 0) {
@@ -2087,19 +2084,14 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
         throw new SemanticException(ErrorMsg.CONCATENATE_UNSUPPORTED_TABLE_NOT_MANAGED.getMsg());
       }
 
-      inputDir.add(oldTblPartLoc);
-
-      mergeDesc.setInputDir(inputDir);
-
-      mergeDesc.setLbCtx(lbCtx);
-
       addInputsOutputsAlterTable(tableName, partSpec, null, AlterTableType.MERGEFILES, false);
+      TableDesc tblDesc = Utilities.getTableDesc(tblObj);
+      Path queryTmpdir = ctx.getExternalTmpPath(newTblPartLoc);
+      AlterTableConcatenateDesc mergeDesc = new AlterTableConcatenateDesc(tableName, partSpec, lbCtx, oldTblPartLoc,
+          queryTmpdir, inputFormatClass, Utilities.getTableDesc(tblObj));
       DDLWork ddlWork = new DDLWork(getInputs(), getOutputs(), mergeDesc);
       ddlWork.setNeedLock(true);
       Task<?> mergeTask = TaskFactory.get(ddlWork);
-      TableDesc tblDesc = Utilities.getTableDesc(tblObj);
-      Path queryTmpdir = ctx.getExternalTmpPath(newTblPartLoc);
-      mergeDesc.setOutputDir(queryTmpdir);
       // No need to handle MM tables - unsupported path.
       LoadTableDesc ltd = new LoadTableDesc(queryTmpdir, tblDesc,
           partSpec == null ? new HashMap<>() : partSpec);
@@ -2763,13 +2755,11 @@ public class DDLSemanticAnalyzer extends BaseSemanticAnalyzer {
    */
   private void analyzeShowFunctions(ASTNode ast) throws SemanticException {
     ShowFunctionsDesc showFuncsDesc;
-    if (ast.getChildCount() == 1) {
-      String funcNames = stripQuotes(ast.getChild(0).getText());
-      showFuncsDesc = new ShowFunctionsDesc(ctx.getResFile(), funcNames);
-    } else if (ast.getChildCount() == 2) {
+    if (ast.getChildCount() > 0) {
+      assert (ast.getChildCount() == 2);
       assert (ast.getChild(0).getType() == HiveParser.KW_LIKE);
       String funcNames = stripQuotes(ast.getChild(1).getText());
-      showFuncsDesc = new ShowFunctionsDesc(ctx.getResFile(), funcNames, true);
+      showFuncsDesc = new ShowFunctionsDesc(ctx.getResFile(), funcNames);
     } else {
       showFuncsDesc = new ShowFunctionsDesc(ctx.getResFile());
     }

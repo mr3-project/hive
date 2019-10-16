@@ -247,7 +247,7 @@ TOK_STRINGLITERALSEQUENCE;
 TOK_CHARSETLITERAL;
 TOK_CREATEFUNCTION;
 TOK_DROPFUNCTION;
-TOK_RELOADFUNCTION;
+TOK_RELOADFUNCTIONS;
 TOK_CREATEMACRO;
 TOK_DROPMACRO;
 TOK_TEMPORARY;
@@ -569,6 +569,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
     xlateMap.put("KW_REGEXP", "REGEXP");
     xlateMap.put("KW_TEMPORARY", "TEMPORARY");
     xlateMap.put("KW_FUNCTION", "FUNCTION");
+    xlateMap.put("KW_FUNCTIONS", "FUNCTIONS");
     xlateMap.put("KW_EXPLAIN", "EXPLAIN");
     xlateMap.put("KW_EXTENDED", "EXTENDED");
     xlateMap.put("KW_DEBUG", "DEBUG");
@@ -987,7 +988,7 @@ ddlStatement
     | createFunctionStatement
     | createMacroStatement
     | dropFunctionStatement
-    | reloadFunctionStatement
+    | reloadFunctionsStatement
     | dropMacroStatement
     | analyzeStatement
     | lockStatement
@@ -1633,7 +1634,7 @@ showStatement
     | KW_SHOW KW_MATERIALIZED KW_VIEWS ((KW_FROM|KW_IN) db_name=identifier)? (KW_LIKE showStmtIdentifier|showStmtIdentifier)?  -> ^(TOK_SHOWMATERIALIZEDVIEWS (TOK_FROM $db_name)? showStmtIdentifier?)
     | KW_SHOW KW_COLUMNS (KW_FROM|KW_IN) tableName ((KW_FROM|KW_IN) db_name=identifier)? (KW_LIKE showStmtIdentifier|showStmtIdentifier)?
     -> ^(TOK_SHOWCOLUMNS tableName (TOK_FROM $db_name)? showStmtIdentifier?)
-    | KW_SHOW KW_FUNCTIONS (KW_LIKE showFunctionIdentifier|showFunctionIdentifier)?  -> ^(TOK_SHOWFUNCTIONS KW_LIKE? showFunctionIdentifier?)
+    | KW_SHOW KW_FUNCTIONS (KW_LIKE showFunctionIdentifier)?  -> ^(TOK_SHOWFUNCTIONS KW_LIKE? showFunctionIdentifier?)
     | KW_SHOW KW_PARTITIONS tabName=tableName partitionSpec? -> ^(TOK_SHOWPARTITIONS $tabName partitionSpec?) 
     | KW_SHOW KW_CREATE (
         (KW_DATABASE|KW_SCHEMA) => (KW_DATABASE|KW_SCHEMA) db_name=identifier -> ^(TOK_SHOW_CREATEDATABASE $db_name)
@@ -1944,10 +1945,10 @@ dropFunctionStatement
     ->                  ^(TOK_DROPFUNCTION functionIdentifier ifExists?)
     ;
 
-reloadFunctionStatement
-@init { pushMsg("reload function statement", state); }
+reloadFunctionsStatement
+@init { pushMsg("reload functions statement", state); }
 @after { popMsg(state); }
-    : KW_RELOAD KW_FUNCTION -> ^(TOK_RELOADFUNCTION);
+    : KW_RELOAD (KW_FUNCTIONS|KW_FUNCTION) -> ^(TOK_RELOADFUNCTIONS);
 
 createMacroStatement
 @init { pushMsg("create macro statement", state); }

@@ -16,35 +16,31 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hive.ql.plan;
+package org.apache.hadoop.hive.ql.ddl.database;
 
-import java.io.Serializable;
+import java.util.Map;
+
+import org.apache.hadoop.hive.ql.parse.ReplicationSpec;
+import org.apache.hadoop.hive.ql.plan.Explain;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
 
-
 /**
- * DropMacroDesc.
- *
+ * DDL task description for ALTER DATABASE ... SET PROPERTIES ... commands.
  */
-@Explain(displayName = "Drop Macro", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-public class DropMacroDesc implements Serializable {
+@Explain(displayName = "Set Database Properties", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+public class AlterDatabaseSetPropertiesDesc extends AbstractAlterDatabaseDesc {
   private static final long serialVersionUID = 1L;
 
-  private String macroName;
+  private final Map<String, String> dbProperties;
 
-  /**
-   * For serialization only.
-   */
-  public DropMacroDesc() {
+  public AlterDatabaseSetPropertiesDesc(String databaseName, Map<String, String> dbProperties,
+      ReplicationSpec replicationSpec) {
+    super(databaseName, replicationSpec);
+    this.dbProperties = dbProperties;
   }
 
-  public DropMacroDesc(String macroName) {
-    this.macroName = macroName;
+  @Explain(displayName="properties")
+  public Map<String, String> getDatabaseProperties() {
+    return dbProperties;
   }
-
-  @Explain(displayName = "name", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-  public String getMacroName() {
-    return macroName;
-  }
-
 }

@@ -16,36 +16,39 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hive.ql.ddl.view;
+package org.apache.hadoop.hive.ql.ddl.database;
 
 import java.io.Serializable;
 
-import org.apache.hadoop.hive.ql.plan.Explain;
 import org.apache.hadoop.hive.ql.ddl.DDLDesc;
+import org.apache.hadoop.hive.ql.parse.ReplicationSpec;
+import org.apache.hadoop.hive.ql.plan.Explain;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
 
 /**
- * DDL task description for all the ALTER MATERIALIZED VIEW commands.
+ * DDL task description for ALTER DATABASE commands.
  */
-@Explain(displayName = "Alter Materialized View", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-abstract class AlterMaterializedViewDesc implements DDLDesc, Serializable {
+public abstract class AbstractAlterDatabaseDesc implements DDLDesc, Serializable {
   private static final long serialVersionUID = 1L;
 
-  /**
-   * Alter Materialized View Types.
-   */
-  enum AlterMaterializedViewTypes {
-    UPDATE_REWRITE_FLAG
-  };
+  private final String databaseName;
+  private final ReplicationSpec replicationSpec;
 
-  private AlterMaterializedViewTypes op;
-
-  AlterMaterializedViewDesc(AlterMaterializedViewTypes type) {
-    this.op = type;
+  public AbstractAlterDatabaseDesc(String databaseName, ReplicationSpec replicationSpec) {
+    this.databaseName = databaseName;
+    this.replicationSpec = replicationSpec;
   }
 
-  @Explain(displayName = "operation", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-  public String getOpString() {
-    return op.toString();
+  @Explain(displayName="name", explainLevels = {Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public String getDatabaseName() {
+    return databaseName;
+  }
+
+  /**
+   * @return what kind of replication scope this alter is running under.
+   * This can result in a "ALTER IF NEWER THAN" kind of semantic
+   */
+  public ReplicationSpec getReplicationSpec() {
+    return this.replicationSpec;
   }
 }

@@ -453,6 +453,7 @@ public class HttpServer {
   WebAppContext createWebAppContext(Builder b) {
     WebAppContext ctx = new WebAppContext();
     setContextAttributes(ctx.getServletContext(), b.contextAttrs);
+    ctx.getServletContext().getSessionCookieConfig().setHttpOnly(true);
     ctx.setDisplayName(b.name);
     ctx.setContextPath("/");
     ctx.setWar(appDir + "/" + b.name);
@@ -462,7 +463,7 @@ public class HttpServer {
   /**
    * Secure the web server with kerberos (AuthenticationFilter).
    */
-  void setupSpnegoFilter(Builder b) throws IOException {
+  void setupSpnegoFilter(Builder b, ServletContextHandler ctx) throws IOException {
     Map<String, String> params = new HashMap<String, String>();
     params.put("kerberos.principal",
       SecurityUtil.getServerPrincipal(b.spnegoPrincipal, b.host));
@@ -471,8 +472,7 @@ public class HttpServer {
     FilterHolder holder = new FilterHolder();
     holder.setClassName(AuthenticationFilter.class.getName());
     holder.setInitParameters(params);
-
-    ServletHandler handler = webAppContext.getServletHandler();
+    ServletHandler handler = ctx.getServletHandler();
     handler.addFilterWithMapping(
       holder, "/*", FilterMapping.ALL);
   }
@@ -565,7 +565,7 @@ public class HttpServer {
 
     if (b.useSPNEGO) {
       // Secure the web server with kerberos
-      setupSpnegoFilter(b);
+      setupSpnegoFilter(b, webAppContext);
     }
 
     if (b.enableCORS) {
@@ -648,6 +648,9 @@ public class HttpServer {
       ServletContextHandler logCtx =
         new ServletContextHandler(contexts, "/logs");
       setContextAttributes(logCtx.getServletContext(), b.contextAttrs);
+      if(b.useSPNEGO) {
+        setupSpnegoFilter(b,logCtx);
+      }
       logCtx.addServlet(AdminAuthorizedServlet.class, "/*");
       logCtx.setResourceBase(logDir);
       logCtx.setDisplayName("logs");

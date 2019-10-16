@@ -107,6 +107,7 @@ import org.apache.hadoop.hive.ql.ddl.table.creation.CreateTableLikeDesc;
 import org.apache.hadoop.hive.ql.ddl.table.misc.AlterTableUnsetPropertiesDesc;
 import org.apache.hadoop.hive.ql.ddl.table.misc.PreInsertTableDesc;
 import org.apache.hadoop.hive.ql.ddl.view.CreateViewDesc;
+import org.apache.hadoop.hive.ql.ddl.view.MaterializedViewUpdateDesc;
 import org.apache.hadoop.hive.ql.exec.AbstractMapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.ArchiveUtils;
 import org.apache.hadoop.hive.ql.exec.ColumnInfo;
@@ -120,7 +121,6 @@ import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
 import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.LimitOperator;
-import org.apache.hadoop.hive.ql.exec.MaterializedViewDesc;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.OperatorFactory;
 import org.apache.hadoop.hive.ql.exec.RecordReader;
@@ -338,7 +338,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
   Map<String, PrunedPartitionList> prunedPartitions;
   protected List<FieldSchema> resultSchema;
   protected CreateViewDesc createVwDesc;
-  protected MaterializedViewDesc materializedViewUpdateDesc;
+  protected MaterializedViewUpdateDesc materializedViewUpdateDesc;
   protected ArrayList<String> viewsExpanded;
   protected ASTNode viewSelect;
   protected final UnparseTranslator unparseTranslator;
@@ -411,6 +411,12 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       new ImmutableCommonToken(HiveParser.TOK_TABLE_OR_COL, "TOK_TABLE_OR_COL");
   private static final CommonToken DOT_TOKEN =
       new ImmutableCommonToken(HiveParser.DOT, ".");
+
+  private static final String[] UPDATED_TBL_PROPS = {
+      hive_metastoreConstants.TABLE_IS_TRANSACTIONAL,
+      hive_metastoreConstants.TABLE_TRANSACTIONAL_PROPERTIES,
+      hive_metastoreConstants.TABLE_BUCKETING_VERSION
+  };
 
   static class Phase1Ctx {
     String dest;
@@ -7358,7 +7364,7 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       }
 
       if (destinationTable.isMaterializedView()) {
-        materializedViewUpdateDesc = new MaterializedViewDesc(
+        materializedViewUpdateDesc = new MaterializedViewUpdateDesc(
             destinationTable.getFullyQualifiedName(), false, false, true);
       }
 
@@ -13127,6 +13133,24 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       validate(childTask, reworkMapredWork);
     }
   }
+
+  /**
+   * Update the default table properties with values fetch from the original table properties. The property names are
+   * defined in {@link SemanticAnalyzer#UPDATED_TBL_PROPS}.
+   * @param source properties of source table, must be not null.
+   * @param target properties of target table.
+   */
+  private void updateDefaultTblProps(Map<String, String> source, Map<String, String> target) {
+    if (source == null || target == null) {
+      return;
+    }
+    for (String property : UPDATED_TBL_PROPS) {
+      if (source.containsKey(property)) {
+        target.put(property, source.get(property));
+      }
+    }
+  }
+
   /**
    * Add default properties for table property. If a default parameter exists
    * in the tblProp, the value in tblProp will be kept.
@@ -13336,6 +13360,16 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
         if (child.getChildCount() > 0) {
           likeTableName = getUnescapedName((ASTNode) child.getChild(0));
           if (likeTableName != null) {
+            Table likeTable = getTable(likeTableName, false);
+            if (likeTable != null) {
+              Map<String, String> likeTableProps = likeTable.getParameters();
+              if (likeTableProps.containsKey(hive_metastoreConstants.TABLE_IS_TRANSACTIONAL)) {
+                isTransactional = true;
+              }
+              if (likeTable.isTemporary()) {
+                isTemporary = true;
+              }
+            }
             if (command_type == CTAS) {
               throw new SemanticException(ErrorMsg.CTAS_CTLT_COEXISTENCE
                   .getMsg());
@@ -13551,16 +13585,20 @@ public class SemanticAnalyzer extends BaseSemanticAnalyzer {
       break;
 
     case CTLT: // create table like <tbl_name>
+
       tblProps = validateAndAddDefaultProperties(
           tblProps, isExt, storageFormat, dbDotTab, sortCols, isMaterialization, isTemporary, isTransactional);
       addDbAndTabToOutputs(qualifiedTabName, TableType.MANAGED_TABLE, isTemporary, tblProps);
 
+      Table likeTable = getTable(likeTableName, false);
       if (isTemporary) {
-        Table likeTable = getTable(likeTableName, false);
         if (likeTable != null && likeTable.getPartCols().size() > 0) {
           throw new SemanticException("Partition columns are not supported on temporary tables "
               + "and source table in CREATE TABLE LIKE is partitioned.");
         }
+      }
+      if (likeTable != null) {
+        updateDefaultTblProps(likeTable.getParameters(), tblProps);
       }
       CreateTableLikeDesc crtTblLikeDesc = new CreateTableLikeDesc(dbDotTab, isExt, isTemporary,
           storageFormat.getInputFormat(), storageFormat.getOutputFormat(), location,
