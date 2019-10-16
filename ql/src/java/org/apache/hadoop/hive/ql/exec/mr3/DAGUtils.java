@@ -929,7 +929,7 @@ public class DAGUtils {
     return partitionerConf;
   }
 
-  private Resource getMapTaskResource(Configuration conf) {
+  public static Resource getMapTaskResource(Configuration conf) {
     return getResource(conf,
         HiveConf.ConfVars.MR3_MAP_TASK_MEMORY_MB,
         MRJobConfig.MAP_MEMORY_MB, MRJobConfig.DEFAULT_MAP_MEMORY_MB,
@@ -937,7 +937,7 @@ public class DAGUtils {
         MRJobConfig.MAP_CPU_VCORES, MRJobConfig.DEFAULT_MAP_CPU_VCORES);
   }
 
-  private Resource getReduceTaskResource(Configuration conf) {
+  public static Resource getReduceTaskResource(Configuration conf) {
     return getResource(conf,
         HiveConf.ConfVars.MR3_REDUCE_TASK_MEMORY_MB,
         MRJobConfig.REDUCE_MEMORY_MB, MRJobConfig.DEFAULT_REDUCE_MEMORY_MB,

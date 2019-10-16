@@ -48,6 +48,7 @@ import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SelectOperator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.exec.TezDummyStoreOperator;
+import org.apache.hadoop.hive.ql.exec.mr3.session.MR3SessionManagerImpl;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
@@ -95,6 +96,8 @@ public class ConvertJoinMapJoin implements NodeProcessor {
   private long maxJoinMemory;
   private HashMapDataStructureType hashMapDataStructure;
   private boolean fastHashTableAvailable;
+
+  private static final int MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS_DEFAULT = 4;
 
   @Override
   /*
@@ -285,10 +288,20 @@ public class ConvertJoinMapJoin implements NodeProcessor {
     LOG.info("Cost of dynamically partitioned hash join : total small table size = " + totalSize
     + " bigTableSize = " + bigTableSize + "networkCostDPHJ = " + networkCostDPHJ);
 
-    // TODO: This is hard to implement correctly in Hive-MR3 because we are inside Hive, not in
-    // ContainerWorker, and there is no way to get the number of ContainerWorkers, especially if autoscaling
-    // is enabled. Implementing this requires extending MR3Client.
-    int numNodes = context.conf.getIntVar(HiveConf.ConfVars.MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS);
+    int numNodes = context.conf.getIntVar(HiveConf.ConfVars.MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_NODES);
+    if (numNodes == -1) {   // not initialized yet
+      // we are inside Hive, not ContainerWorker
+      numNodes = MR3SessionManagerImpl.getNumNodes();
+      if (numNodes == 0) {
+        LOG.warn("getNumNodes is zero, so use a default value: " + MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS_DEFAULT);
+        numNodes = MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS_DEFAULT;
+      } else {
+        LOG.info("getNumNodes: " + numNodes);
+      }
+      context.conf.setIntVar(HiveConf.ConfVars.MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_NODES, numNodes);
+    } else {
+      LOG.info("Use the cached value of getNumNodes: " + numNodes);
+    }
 
     // Network cost of map side join
     long networkCostMJ = numNodes * totalSize;

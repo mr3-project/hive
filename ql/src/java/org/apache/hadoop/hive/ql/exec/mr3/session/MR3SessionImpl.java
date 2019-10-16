@@ -77,7 +77,7 @@ public class MR3SessionImpl implements MR3Session {
   // set in start() and close()
   // read in submit() via updateAmCredentials()
   private HiveConf sessionConf;
-  // read in submit(), isRunningFromApplicationReport()
+  // read in submit(), isRunningFromApplicationReport(), getEstimateNumTasksOrNodes()
   private HiveMR3Client hiveMr3Client;
 
   private ApplicationId appId;
@@ -489,5 +489,13 @@ public class MR3SessionImpl implements MR3Session {
     } else {
       return false;
     }
+  }
+
+  public int getEstimateNumTasksOrNodes(int taskMemoryInMb) throws Exception {
+    HiveMR3Client currentHiveMr3Client;
+    synchronized (this) {
+      currentHiveMr3Client = hiveMr3Client;
+    }
+    return currentHiveMr3Client.getEstimateNumTasksOrNodes(taskMemoryInMb);
   }
 }

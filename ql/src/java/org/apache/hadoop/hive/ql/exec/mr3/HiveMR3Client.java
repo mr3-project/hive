@@ -66,4 +66,6 @@ public interface HiveMR3Client {
   void close(boolean terminateApplication);
 
   boolean isRunningFromApplicationReport() throws Exception;
+
+  int getEstimateNumTasksOrNodes(int taskMemoryInMb) throws Exception;
 }

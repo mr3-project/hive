@@ -3914,7 +3914,7 @@ public class HiveConf extends Configuration {
         "Turn on Tez' auto reducer parallelism feature. When enabled, Hive will still estimate data sizes\n" +
         "and set parallelism estimates. Tez will sample source vertices' output sizes and adjust the estimates at runtime as\n" +
         "necessary."),
-    TEZ_LLAP_MIN_REDUCER_PER_EXECUTOR("hive.tez.llap.min.reducer.per.executor", 0.33f,
+    TEZ_LLAP_MIN_REDUCER_PER_EXECUTOR("hive.tez.llap.min.reducer.per.executor", 0.2f,
         "If above 0, the min number of reducers for auto-parallelism for LLAP scheduling will\n" +
         "be set to this fraction of the number of executors."),
     TEZ_MAX_PARTITION_FACTOR("hive.tez.max.partition.factor", 2f,
@@ -4778,13 +4778,16 @@ public class HiveConf extends Configuration {
     // HiveServer2
     HIVE_SERVER2_MR3_SHARE_SESSION("hive.server2.mr3.share.session", false,
         "Use a common MR3Session to be shared by all HiveSessions"),
+    // for internal use only
+    // -1: not stored in HiveConf yet
+    HIVE_QUERY_ESTIMATE_REDUCE_NUM_TASKS("hive.query.estimate.reducer.num.tasks.internal", -1,
+        "Estimate number of reducer tasks based on MR3SessionManagerImpl.getEstimateNumTasks() for each query"),
+    MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_NODES("hive.mr3.bucket.mapjoin.estimate.num.nodes", -1,
+        "Estimate number of nodes for converting to bucket mapjoin"),
 
     // runtime
     MR3_MAPJOIN_INTERRUPT_CHECK_INTERVAL("hive.mr3.mapjoin.interrupt.check.interval", 100000L,
         "Interval at which HashTableLoader checks the interrupt state"),
-    // TODO: should be computed at runtime and passed to ContainerWorkers
-    MR3_BUCKET_MAPJOIN_ESTIMATE_NUM_CONTAINERS("hive.mr3.bucket.mapjoin.estimate.num.containers", 10,
-        "Estimate number of nodes for converting to bucket mapjoin"),
     MR3_DAG_ADDITIONAL_CREDENTIALS_SOURCE("hive.mr3.dag.additional.credentials.source", "",
         "Comma separated list of additional paths for obtaining DAG Credentials"),
 

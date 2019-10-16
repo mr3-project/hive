@@ -79,4 +79,6 @@ public interface MR3Session {
   Path getSessionScratchDir();
 
   boolean isRunningFromApplicationReport();
+
+  int getEstimateNumTasksOrNodes(int taskMemoryInMb) throws Exception;
 }

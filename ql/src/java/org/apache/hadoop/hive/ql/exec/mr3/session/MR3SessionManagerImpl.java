@@ -74,6 +74,38 @@ public class MR3SessionManagerImpl implements MR3SessionManager {
     return instance;
   }
 
+  // return 'number of Nodes' if taskMemoryInMb == 0
+  public static int getEstimateNumTasksOrNodes(int taskMemoryInMb) {
+    MR3SessionManagerImpl currentInstance;
+    synchronized (MR3SessionManagerImpl.class) {
+      if (instance == null) {
+        LOG.warn("MR3SessionManager not ready yet, reporting 0 Tasks/Nodes");
+        return 0;
+      }
+      currentInstance = instance;
+    }
+
+    MR3Session currentCommonMr3Session;
+    synchronized (currentInstance) {
+      currentCommonMr3Session = currentInstance.commonMr3Session;
+    }
+    if (currentCommonMr3Session == null) {
+      LOG.warn("No common MR3Session, reporting 0 Tasks/Nodes");
+      return 0;
+    }
+
+    try {
+      return currentCommonMr3Session.getEstimateNumTasksOrNodes(taskMemoryInMb);
+    } catch (Exception ex) {
+      LOG.error("getEstimateNumTasksOrNodes() failed, reporting 0 Tasks/Nodes");
+      return 0;
+    }
+  }
+
+  public static int getNumNodes() {
+    return getEstimateNumTasksOrNodes(0);
+  }
+
   private MR3SessionManagerImpl() {}
 
   //

@@ -170,4 +170,11 @@ public class HiveMR3ClientImpl implements HiveMR3Client {
       }
     }
   }
+
+  @Override
+  public int getEstimateNumTasksOrNodes(int taskMemoryInMb) throws Exception {
+    // getNumContainerWorkers() returns an estimate number of Tasks if taskMemoryInMb > 0
+    // getNumContainerWorkers() returns the number of Nodes if taskMemoryInMb <= 0
+    return mr3Client.getNumContainerWorkers(taskMemoryInMb);
+  }
 }
