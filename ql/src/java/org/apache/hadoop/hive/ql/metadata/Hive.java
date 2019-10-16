@@ -112,6 +112,8 @@ import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.metastore.utils.MetaStoreServerUtils;
 import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
 import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.ddl.table.partition.AlterTableAddPartitionDesc;
+import org.apache.hadoop.hive.ql.ddl.table.partition.AlterTableDropPartitionDesc;
 import org.apache.hadoop.hive.ql.exec.AbstractFileMergeOperator;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.FunctionTask;
@@ -127,8 +129,6 @@ import org.apache.hadoop.hive.ql.log.PerfLogger;
 import org.apache.hadoop.hive.ql.optimizer.calcite.RelOptHiveTable;
 import org.apache.hadoop.hive.ql.optimizer.calcite.rules.views.HiveAugmentMaterializationRule;
 import org.apache.hadoop.hive.ql.optimizer.listbucketingpruner.ListBucketingPrunerUtils;
-import org.apache.hadoop.hive.ql.plan.AddPartitionDesc;
-import org.apache.hadoop.hive.ql.plan.DropPartitionDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
@@ -346,6 +346,14 @@ public class Hive {
   private static HiveConf createHiveConf() {
     SessionState session = SessionState.get();
     return (session == null) ? new HiveConf(Hive.class) : session.getConf();
+  }
+
+  public void setHMSClientCapabilities(String[] capabilities) {
+    HiveMetaStoreClient.setProcessorCapabilities(capabilities);
+  }
+
+  public void setHMSClientIdentifier(final String id) {
+    HiveMetaStoreClient.setProcessorIdentifier(id);
   }
 
   private static boolean isCompatible(Hive db, HiveConf c, boolean isFastCheck) {
@@ -2362,7 +2370,8 @@ public class Hive {
             ((null != oldPart) || AcidUtils.isTransactionalTable(tbl));
   }
 
-  public void listFilesInsideAcidDirectory(Path acidDir, FileSystem srcFs, List<Path> newFiles) throws IOException {
+  public static void listFilesInsideAcidDirectory(Path acidDir, FileSystem srcFs, List<Path> newFiles)
+          throws IOException {
     // list out all the files/directory in the path
     FileStatus[] acidFiles;
     acidFiles = srcFs.listStatus(acidDir);
@@ -2370,6 +2379,7 @@ public class Hive {
       LOG.debug("No files added by this query in: " + acidDir);
       return;
     }
+    LOG.debug("Listing files under " + acidDir);
     for (FileStatus acidFile : acidFiles) {
       // need to list out only files, ignore folders.
       if (!acidFile.isDirectory()) {
@@ -2990,7 +3000,7 @@ private void constructOneLBLocationMap(FileStatus fSta,
     }
   }
 
-  public List<Partition> createPartitions(AddPartitionDesc addPartitionDesc) throws HiveException {
+  public List<Partition> createPartitions(AlterTableAddPartitionDesc addPartitionDesc) throws HiveException {
     // TODO: catalog name everywhere in this method
     Table tbl = getTable(addPartitionDesc.getDbName(), addPartitionDesc.getTableName());
     int size = addPartitionDesc.getPartitionCount();
@@ -3084,7 +3094,7 @@ private void constructOneLBLocationMap(FileStatus fSta,
   }
 
   public static org.apache.hadoop.hive.metastore.api.Partition convertAddSpecToMetaPartition(
-    Table tbl, AddPartitionDesc.OnePartitionDesc addSpec, final HiveConf conf) throws HiveException {
+      Table tbl, AlterTableAddPartitionDesc.PartitionDesc addSpec, final HiveConf conf) throws HiveException {
     Path location = addSpec.getLocation() != null
         ? new Path(tbl.getPath(), addSpec.getLocation()) : null;
     if (location != null) {
@@ -3282,25 +3292,34 @@ private void constructOneLBLocationMap(FileStatus fSta,
                         "partition " + partitionSpec + " list of files " + newFiles);
 
     try {
-      FileSystem fileSystem = tbl.getDataLocation().getFileSystem(conf);
       Long txnId = SessionState.get().getTxnMgr().getCurrentTxnId();
-
-      InsertEventRequestData insertData = new InsertEventRequestData();
-      insertData.setReplace(true);
-
-      WriteNotificationLogRequest rqst = new WriteNotificationLogRequest(txnId, writeId,
-              tbl.getDbName(), tbl.getTableName(), insertData);
-      addInsertFileInformation(newFiles, fileSystem, insertData);
-
+      List<String> partitionVals = null;
       if (partitionSpec != null && !partitionSpec.isEmpty()) {
+        partitionVals = new ArrayList<>();
         for (FieldSchema fs : tbl.getPartitionKeys()) {
-          rqst.addToPartitionVals(partitionSpec.get(fs.getName()));
+          partitionVals.add(partitionSpec.get(fs.getName()));
         }
       }
-      getSynchronizedMSC().addWriteNotificationLog(rqst);
+
+      addWriteNotificationLog(conf, tbl, partitionVals, txnId, writeId, newFiles);
     } catch (IOException | TException e) {
       throw new HiveException(e);
     }
+  }
+
+  public static void addWriteNotificationLog(HiveConf conf, Table tbl, List<String> partitionVals,
+                                             Long txnId, Long writeId, List<Path> newFiles)
+          throws IOException, HiveException, TException {
+    FileSystem fileSystem = tbl.getDataLocation().getFileSystem(conf);
+    InsertEventRequestData insertData = new InsertEventRequestData();
+    insertData.setReplace(true);
+
+    WriteNotificationLogRequest rqst = new WriteNotificationLogRequest(txnId, writeId,
+            tbl.getDbName(), tbl.getTableName(), insertData);
+    addInsertFileInformation(newFiles, fileSystem, insertData);
+    rqst.setPartitionVals(partitionVals);
+
+    get(conf).getSynchronizedMSC().addWriteNotificationLog(rqst);
   }
 
   private void fireInsertEvent(Table tbl, Map<String, String> partitionSpec, boolean replace, List<Path> newFiles)
@@ -3434,7 +3453,7 @@ private void constructOneLBLocationMap(FileStatus fSta,
   public List<Partition> dropPartitions(Table table, List<String>partDirNames,
       boolean deleteData, boolean ifExists) throws HiveException {
     // partitions to be dropped in this batch
-    List<DropPartitionDesc.PartSpec> partSpecs = new ArrayList<>(partDirNames.size());
+    List<AlterTableDropPartitionDesc.PartitionDesc> partSpecs = new ArrayList<>(partDirNames.size());
 
     // parts of the partition
     String[] parts = null;
@@ -3484,7 +3503,7 @@ private void constructOneLBLocationMap(FileStatus fSta,
       }
 
       // Add the expression to partition specification
-      partSpecs.add(new DropPartitionDesc.PartSpec(expr, partSpecKey));
+      partSpecs.add(new AlterTableDropPartitionDesc.PartitionDesc(expr, partSpecKey));
 
       // Increment dropKey to get a new key for hash map
       ++partSpecKey;
@@ -3494,14 +3513,14 @@ private void constructOneLBLocationMap(FileStatus fSta,
     return dropPartitions(names[0], names[1], partSpecs, deleteData, ifExists);
   }
 
-  public List<Partition> dropPartitions(String tblName, List<DropPartitionDesc.PartSpec> partSpecs,
+  public List<Partition> dropPartitions(String tblName, List<AlterTableDropPartitionDesc.PartitionDesc> partSpecs,
       boolean deleteData, boolean ifExists) throws HiveException {
     String[] names = Utilities.getDbTableName(tblName);
     return dropPartitions(names[0], names[1], partSpecs, deleteData, ifExists);
   }
 
   public List<Partition> dropPartitions(String dbName, String tblName,
-      List<DropPartitionDesc.PartSpec> partSpecs,  boolean deleteData,
+      List<AlterTableDropPartitionDesc.PartitionDesc> partSpecs,  boolean deleteData,
       boolean ifExists) throws HiveException {
     return dropPartitions(dbName, tblName, partSpecs,
                           PartitionDropOptions.instance()
@@ -3509,19 +3528,20 @@ private void constructOneLBLocationMap(FileStatus fSta,
                                               .ifExists(ifExists));
   }
 
-  public List<Partition> dropPartitions(String tblName, List<DropPartitionDesc.PartSpec> partSpecs,
+  public List<Partition> dropPartitions(String tblName, List<AlterTableDropPartitionDesc.PartitionDesc> partSpecs,
                                         PartitionDropOptions dropOptions) throws HiveException {
     String[] names = Utilities.getDbTableName(tblName);
     return dropPartitions(names[0], names[1], partSpecs, dropOptions);
   }
 
   public List<Partition> dropPartitions(String dbName, String tblName,
-      List<DropPartitionDesc.PartSpec> partSpecs, PartitionDropOptions dropOptions) throws HiveException {
+      List<AlterTableDropPartitionDesc.PartitionDesc> partSpecs, PartitionDropOptions dropOptions)
+      throws HiveException {
     try {
       Table tbl = getTable(dbName, tblName);
       List<org.apache.hadoop.hive.metastore.utils.ObjectPair<Integer, byte[]>> partExprs =
           new ArrayList<>(partSpecs.size());
-      for (DropPartitionDesc.PartSpec partSpec : partSpecs) {
+      for (AlterTableDropPartitionDesc.PartitionDesc partSpec : partSpecs) {
         partExprs.add(new org.apache.hadoop.hive.metastore.utils.ObjectPair<>(partSpec.getPrefixLength(),
             SerializationUtilities.serializeExpressionToKryo(partSpec.getPartSpec())));
       }
@@ -4290,6 +4310,19 @@ private void constructOneLBLocationMap(FileStatus fSta,
     }
   }
 
+  private static void deleteAndRename(FileSystem destFs, Path destFile, FileStatus srcStatus, Path destPath)
+          throws IOException {
+    if (destFs.exists(destFile)) {
+      // rename cannot overwrite non empty destination directory, so deleting the destination before renaming.
+      destFs.delete(destFile);
+      LOG.info("Deleting destination file" + destFile.toUri());
+    }
+    if(!destFs.rename(srcStatus.getPath(), destFile)) {
+      throw new IOException("rename for src path: " + srcStatus.getPath() + " to dest:"
+              + destPath + " returned false");
+    }
+  }
+
   //it is assumed that parent directory of the destf should already exist when this
   //method is called. when the replace value is true, this method works a little different
   //from mv command if the destf is a directory, it replaces the destf instead of moving under
@@ -4375,37 +4408,14 @@ private void constructOneLBLocationMap(FileStatus fSta,
                   "Unable to move source " + srcStatus.getPath() + " to destination " + destFile;
 
               if (null == pool) {
-                boolean success = false;
-                if (destFs instanceof DistributedFileSystem) {
-                  ((DistributedFileSystem)destFs).rename(srcStatus.getPath(), destFile, Options.Rename.OVERWRITE);
-                  success = true;
-                } else {
-                  destFs.delete(destFile, false);
-                  success = destFs.rename(srcStatus.getPath(), destFile);
-                }
-                if(!success) {
-                  throw new IOException("rename for src path: " + srcStatus.getPath() + " to dest:"
-                      + destf + " returned false");
-                }
+                deleteAndRename(destFs, destFile, srcStatus, destf);
               } else {
                 futures.add(pool.submit(new Callable<Void>() {
                   @Override
                   public Void call() throws HiveException {
                     SessionState.setCurrentSessionState(parentSession);
                     try {
-                      boolean success = false;
-                      if (destFs instanceof DistributedFileSystem) {
-                        ((DistributedFileSystem)destFs).rename(srcStatus.getPath(), destFile, Options.Rename.OVERWRITE);
-                        success = true;
-                      } else {
-                        destFs.delete(destFile, false);
-                        success = destFs.rename(srcStatus.getPath(), destFile);
-                      }
-                      if (!success) {
-                        throw new IOException(
-                            "rename for src path: " + srcStatus.getPath() + " to dest path:"
-                                + destFile + " returned false");
-                      }
+                      deleteAndRename(destFs, destFile, srcStatus, destf);
                     } catch (Exception e) {
                       throw getHiveException(e, poolMsg);
                     }
@@ -6058,3 +6068,4 @@ private void constructOneLBLocationMap(FileStatus fSta,
     }
   }
 }
+
