@@ -20,13 +20,14 @@ package org.apache.hadoop.hive.ql.exec.repl.util;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hive.common.repl.ReplConst;
+import org.apache.hadoop.hive.common.repl.ReplScope;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.ColumnStatistics;
 import org.apache.hadoop.hive.metastore.api.EnvironmentContext;
 import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
 import org.apache.hadoop.hive.ql.ErrorMsg;
-import org.apache.hadoop.hive.ql.ddl.DDLWork2;
+import org.apache.hadoop.hive.ql.ddl.DDLWork;
 import org.apache.hadoop.hive.ql.ddl.table.misc.AlterTableSetPropertiesDesc;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.TaskFactory;
@@ -146,7 +147,7 @@ public class ReplUtils {
     String fqTableName = StatsUtils.getFullyQualifiedTableName(tableDesc.getDatabaseName(), tableDesc.getTableName());
     AlterTableSetPropertiesDesc alterTblDesc =  new AlterTableSetPropertiesDesc(fqTableName, partSpec, null, false,
         mapProp, false, false, null);
-    return TaskFactory.get(new DDLWork2(new HashSet<>(), new HashSet<>(), alterTblDesc), conf);
+    return TaskFactory.get(new DDLWork(new HashSet<>(), new HashSet<>(), alterTblDesc), conf);
   }
 
   public static boolean replCkptStatus(String dbName, Map<String, String> props, String dumpRoot)
@@ -271,5 +272,9 @@ public class ReplUtils {
     }
 
     return true;
+  }
+
+  public static boolean tableIncludedInReplScope(ReplScope replScope, String tableName) {
+    return ((replScope == null) || replScope.tableIncludedInReplScope(tableName));
   }
 }

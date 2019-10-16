@@ -16,20 +16,29 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.hive.ql.plan;
+package org.apache.hadoop.hive.ql.ddl.misc;
+
+import org.apache.hadoop.hive.ql.ddl.DDLDesc;
+import org.apache.hadoop.hive.ql.plan.Explain;
+import org.apache.hadoop.hive.ql.plan.Explain.Level;
 
 import java.io.Serializable;
 
 /**
- * DDLDesc.
- *
+ * Remove the flag from db property if its already present.
  */
-public abstract class DDLDesc implements Serializable {
+@Explain(displayName = "Set First Incr Load Pend Flag", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+public class ReplRemoveFirstIncLoadPendFlagDesc implements DDLDesc, Serializable {
   private static final long serialVersionUID = 1L;
 
-  public static interface DDLDescWithWriteId {
-    void setWriteId(long writeId);
-    String getFullTableName();
-    boolean mayNeedWriteId();
+  private final String databaseName;
+
+  public ReplRemoveFirstIncLoadPendFlagDesc(String databaseName) {
+    this.databaseName = databaseName;
+  }
+
+  @Explain(displayName="db name", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public String getDatabaseName() {
+    return databaseName;
   }
 }
