@@ -177,6 +177,8 @@ public class LlapDecider implements PhysicalPlanResolver {
 
       // MR3 only
       int targetCount = conf.getIntVar(HiveConf.ConfVars.HIVE_QUERY_ESTIMATE_REDUCE_NUM_TASKS);
+      final int taskCount;
+      final int maxReducers = conf.getIntVar(HiveConf.ConfVars.MAXREDUCERS);
       if (targetCount == -1) {  // not initialized yet
         Resource reducerResource = DAGUtils.getReduceTaskResource(conf);
         int reducerMemoryInMb = reducerResource.getMemory();
@@ -184,21 +186,20 @@ public class LlapDecider implements PhysicalPlanResolver {
         int estimateNumTasks = MR3SessionManagerImpl.getEstimateNumTasksOrNodes(reducerMemoryInMb);
         if (estimateNumTasks == 0) {  // e.g., no ContainerWorkers are running
           LOG.info("estimateNumTasks is zero, so use LLAP_DAEMON_NUM_EXECUTORS: " + executorsPerNode);
-          targetCount = (int)Math.ceil(minReducersPerExec * 1 * executorsPerNode);
+          taskCount = executorsPerNode; // assume 1 node
         } else {
           LOG.info("Use estimateNumTasks = " + estimateNumTasks + " for memory " + reducerMemoryInMb);
-          targetCount = (int)Math.ceil(minReducersPerExec * estimateNumTasks);
+          taskCount = estimateNumTasks;
         }
+        targetCount = Math.min(maxReducers, (int) Math.ceil(minReducersPerExec * taskCount));
         conf.setIntVar(HiveConf.ConfVars.HIVE_QUERY_ESTIMATE_REDUCE_NUM_TASKS, targetCount);
       } else {
         LOG.info("Use the cached value of targetCount: " + targetCount);
       }
-
-      // We only increase the targets here.
+      // We only increase the targets here, but we stay below maxReducers
       if (reduceWork.isAutoReduceParallelism()) {
         // Do not exceed the configured max reducers.
-        int newMin = Math.min(conf.getIntVar(HiveConf.ConfVars.MAXREDUCERS),
-            Math.max(reduceWork.getMinReduceTasks(), targetCount));
+        int newMin = Math.min(maxReducers, Math.max(reduceWork.getMinReduceTasks(), targetCount));
         if (newMin < reduceWork.getMaxReduceTasks()) {
           reduceWork.setMinReduceTasks(newMin);
           reduceWork.getEdgePropRef().setAutoReduce(conf, true, newMin,

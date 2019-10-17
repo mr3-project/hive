@@ -750,6 +750,10 @@ public class HiveConf extends Configuration {
     @Deprecated
     METASTORE_CAPABILITY_CHECK("hive.metastore.client.capability.check", true,
         "Whether to check client capabilities for potentially breaking API usage."),
+    METASTORE_CLIENT_CAPABILITIES("hive.metastore.client.capabilities", "EXTWRITE,EXTREAD,HIVEBUCKET2,"
+        + "HIVEFULLACIDREAD,HIVEFULLACIDWRITE,HIVECACHEINVALIDATE,HIVEMANAGESTATS,"
+        + "HIVEMANAGEDINSERTWRITE,HIVEMANAGEDINSERTREAD,"
+        + "HIVESQL,HIVEMQT,HIVEONLYMQTWRITE", "Capabilities possessed by HiveServer"),
     METASTORE_CLIENT_CACHE_ENABLED("hive.metastore.client.cache.enabled", false,
       "Whether to enable metastore client cache"),
     METASTORE_CLIENT_CACHE_EXPIRY_TIME("hive.metastore.client.cache.expiry.time", "120s",
@@ -2219,6 +2223,10 @@ public class HiveConf extends Configuration {
         "not a multiple of each other, bucketed map-side join cannot be performed, and the\n" +
         "query will fail if hive.enforce.bucketmapjoin is set to true."),
 
+    HIVE_SORT_WHEN_BUCKETING("hive.optimize.clustered.sort", true,
+        "When this option is true, when a Hive table was created with a clustered by clause, we will also\n" +
+        "sort by same value (if sort columns were not specified)"),
+
     HIVE_ENFORCE_NOT_NULL_CONSTRAINT("hive.constraint.notnull.enforce", true,
         "Should \"IS NOT NULL \" constraint be enforced?"),
 
@@ -2908,6 +2916,11 @@ public class HiveConf extends Configuration {
     HIVE_HBASE_SNAPSHOT_NAME("hive.hbase.snapshot.name", null, "The HBase table snapshot name to use."),
     HIVE_HBASE_SNAPSHOT_RESTORE_DIR("hive.hbase.snapshot.restoredir", "/tmp", "The directory in which to " +
         "restore the HBase table snapshot."),
+
+    // For Kudu storage handler
+    HIVE_KUDU_MASTER_ADDRESSES_DEFAULT("hive.kudu.master.addresses.default", "localhost:7050",
+        "Comma-separated list of all of the Kudu master addresses.\n" +
+            "This value is only used for a given table if the kudu.master_addresses table property is not set."),
 
     // For har files
     HIVEARCHIVEENABLED("hive.archive.enabled", false, "Whether archiving operations are permitted"),
@@ -4262,6 +4275,9 @@ public class HiveConf extends Configuration {
       "Port to use for LLAP plugin rpc server"),
     LLAP_PLUGIN_RPC_NUM_HANDLERS("hive.llap.plugin.rpc.num.handlers", 1,
       "Number of RPC handlers for AM LLAP plugin endpoint."),
+    LLAP_HDFS_PACKAGE_DIR("hive.llap.hdfs.package.dir", ".yarn",
+      "Package directory on HDFS used for holding collected configuration and libraries" +
+      " required for YARN launch. Note: this should be set to the same as yarn.service.base.path"),
     LLAP_DAEMON_WORK_DIRS("hive.llap.daemon.work.dirs", "",
         "Working directories for the daemon. This should not be set if running as a YARN\n" +
         "Service. It must be set when not running on YARN. If the value is set when\n" +
@@ -4712,7 +4728,8 @@ public class HiveConf extends Configuration {
         + ",fs.s3a.secret.key"
         + ",fs.s3a.proxy.password"
         + ",dfs.adls.oauth2.credential"
-        + ",fs.adl.oauth2.credential",
+        + ",fs.adl.oauth2.credential"
+        + ",fs.azure.account.oauth2.client.secret",
         "Comma separated list of configuration options which should not be read by normal user like passwords"),
     HIVE_CONF_INTERNAL_VARIABLE_LIST("hive.conf.internal.variable.list",
         "hive.added.files.path,hive.added.jars.path,hive.added.archives.path",
@@ -5542,7 +5559,7 @@ public class HiveConf extends Configuration {
 
   public static void setVar(Configuration conf, ConfVars var, String val) {
     assert (var.valClass == String.class) : var.varname;
-    conf.set(var.varname, val);
+    conf.set(var.varname, val, "setVar");
   }
   public static void setVar(Configuration conf, ConfVars var, String val,
     EncoderDecoder<String, String> encoderDecoder) {
@@ -5651,7 +5668,7 @@ public class HiveConf extends Configuration {
     origProp = getAllProperties();
 
     // Overlay the ConfVars. Note that this ignores ConfVars with null values
-    addResource(getConfVarInputStream());
+    addResource(getConfVarInputStream(), "HiveConf.java");
 
     // Overlay hive-site.xml if it exists
     if (hiveSiteURL != null) {
@@ -5764,8 +5781,8 @@ public class HiveConf extends Configuration {
     if (whiteListParamsStr == null || whiteListParamsStr.trim().isEmpty()) {
       // set the default configs in whitelist
       whiteListParamsStr = getSQLStdAuthDefaultWhiteListPattern();
+      setVar(ConfVars.HIVE_AUTHORIZATION_SQL_STD_AUTH_CONFIG_WHITELIST, whiteListParamsStr);
     }
-    setVar(ConfVars.HIVE_AUTHORIZATION_SQL_STD_AUTH_CONFIG_WHITELIST, whiteListParamsStr);
   }
 
   private static String getSQLStdAuthDefaultWhiteListPattern() {
