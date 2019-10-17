@@ -346,9 +346,9 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
       }
 
       if (MetastoreConf.getVar(conf, ConfVars.THRIFT_URI_SELECTION).equalsIgnoreCase("RANDOM")) {
-        List uriList = Arrays.asList(metastoreUris);
+        List<URI> uriList = Arrays.asList(metastoreUris);
         Collections.shuffle(uriList);
-        metastoreUris = (URI[]) uriList.toArray();
+        metastoreUris = uriList.toArray(new URI[uriList.size()]);
       }
     } catch (IllegalArgumentException e) {
       throw (e);
@@ -1882,7 +1882,18 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
   @Override
   public Database getDatabase(String catalogName, String databaseName) throws TException {
-    Database d = client.get_database(prependCatalogToDbName(catalogName, databaseName, conf));
+    GetDatabaseRequest request = new GetDatabaseRequest();
+    if (databaseName != null)
+      request.setName(databaseName);
+    if (catalogName != null)
+      request.setCatalogName(catalogName);
+    if (processorCapabilities != null) {
+      request.setProcessorCapabilities(Arrays.asList(processorCapabilities));
+    }
+    if (processorIdentifier != null) {
+      request.setProcessorIdentifier(processorIdentifier);
+    }
+    Database d = client.get_database_req(request);
     return deepCopy(FilterUtils.filterDbIfEnabled(isClientFilterEnabled, filterHook, d));
   }
 

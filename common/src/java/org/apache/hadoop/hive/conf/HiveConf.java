@@ -1745,7 +1745,7 @@ public class HiveConf extends Configuration {
         "Only works on Tez and Spark, because memory-optimized hashtable cannot be serialized."),
     HIVEMAPJOINOPTIMIZEDTABLEPROBEPERCENT("hive.mapjoin.optimized.hashtable.probe.percent",
         (float) 0.5, "Probing space percentage of the optimized hashtable"),
-    HIVEUSEHYBRIDGRACEHASHJOIN("hive.mapjoin.hybridgrace.hashtable", true, "Whether to use hybrid" +
+    HIVEUSEHYBRIDGRACEHASHJOIN("hive.mapjoin.hybridgrace.hashtable", false, "Whether to use hybrid" +
         "grace hash join as the join method for mapjoin. Tez only."),
     HIVEHYBRIDGRACEHASHJOINMEMCHECKFREQ("hive.mapjoin.hybridgrace.memcheckfrequency", 1024, "For " +
         "hybrid grace hash join, how often (how many rows apart) we check if memory is full. " +
@@ -2279,6 +2279,8 @@ public class HiveConf extends Configuration {
          "Whether to transform OR clauses in Filter operators into IN clauses"),
     HIVEPOINTLOOKUPOPTIMIZERMIN("hive.optimize.point.lookup.min", 2,
              "Minimum number of OR clauses needed to transform into IN clauses"),
+    HIVEOPT_TRANSFORM_IN_MAXNODES("hive.optimize.transform.in.maxnodes", 16,
+        "Maximum number of IN expressions beyond which IN will not be transformed into OR clause"),
     HIVECOUNTDISTINCTOPTIMIZER("hive.optimize.countdistinct", true,
                  "Whether to transform count distinct into two stages"),
    HIVEPARTITIONCOLUMNSEPARATOR("hive.optimize.partition.columns.separate", true,

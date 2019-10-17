@@ -2563,20 +2563,32 @@ public class ObjectStore implements RawStore, Configurable {
   private void dropPartitionsViaJdo(String catName, String dbName, String tblName,
       List<String> partNames) throws MetaException {
     boolean success = false;
-    openTransaction();
-    try {
-      // Delete all things.
-      dropPartitionGrantsNoTxn(catName, dbName, tblName, partNames);
-      dropPartitionAllColumnGrantsNoTxn(catName, dbName, tblName, partNames);
-      dropPartitionColumnStatisticsNoTxn(catName, dbName, tblName, partNames);
 
-      // CDs are reused; go try partition SDs, detach all CDs from SDs, then remove unused CDs.
-      for (MColumnDescriptor mcd : detachCdsFromSdsNoTxn(catName, dbName, tblName, partNames)) {
-        removeUnusedColumnDescriptor(mcd);
-      }
-      dropPartitionsNoTxn(catName, dbName, tblName, partNames);
+    if (partNames.isEmpty()) {
+      return;
+    }
+    openTransaction();
+
+    try {
+      Batchable.runBatched(batchSize, partNames, new Batchable<String, Void>() {
+        @Override
+        public List<Void> run(List<String> input) throws MetaException {
+          // Delete all things.
+          dropPartitionGrantsNoTxn(catName, dbName, tblName, input);
+          dropPartitionAllColumnGrantsNoTxn(catName, dbName, tblName, input);
+          dropPartitionColumnStatisticsNoTxn(catName, dbName, tblName, input);
+
+          // CDs are reused; go try partition SDs, detach all CDs from SDs, then remove unused CDs.
+          for (MColumnDescriptor mcd : detachCdsFromSdsNoTxn(catName, dbName, tblName, input)) {
+            removeUnusedColumnDescriptor(mcd);
+          }
+          dropPartitionsNoTxn(catName, dbName, tblName, input);
+          return Collections.emptyList();
+        }
+      });
+
       if (!(success = commitTransaction())) {
-        throw new MetaException("Failed to drop partitions"); // Should not happen?
+        throw new MetaException("Failed to drop partitions");
       }
     } finally {
       if (!success) {
@@ -3455,24 +3467,31 @@ public class ObjectStore implements RawStore, Configurable {
    * @param partNames Partition names to get the objects for.
    * @return Resulting partitions.
    */
-  private List<Partition> getPartitionsViaOrmFilter(String catName,
-      String dbName, String tblName, List<String> partNames) throws MetaException {
+  private List<Partition> getPartitionsViaOrmFilter(String catName, String dbName, String tblName,
+      List<String> partNames) throws MetaException {
+
     if (partNames.isEmpty()) {
-      return new ArrayList<>();
+      return Collections.emptyList();
     }
-    ObjectPair<Query, Map<String, String>> queryWithParams =
-        getPartQueryWithParams(catName, dbName, tblName, partNames);
-    Query query = queryWithParams.getFirst();
-    query.setResultClass(MPartition.class);
-    query.setClass(MPartition.class);
-    query.setOrdering("partitionName ascending");
-    @SuppressWarnings("unchecked")
-    List<MPartition> mparts = (List<MPartition>)query.executeWithMap(queryWithParams.getSecond());
-    List<Partition> partitions = convertToParts(catName, dbName, tblName, mparts);
-    if (query != null) {
-      query.closeAll();
-    }
-    return partitions;
+    return Batchable.runBatched(batchSize, partNames, new Batchable<String, Partition>() {
+      @Override
+      public List<Partition> run(List<String> input) throws MetaException {
+        ObjectPair<Query, Map<String, String>> queryWithParams =
+            getPartQueryWithParams(catName, dbName, tblName, input);
+
+        Query query = queryWithParams.getFirst();
+        query.setResultClass(MPartition.class);
+        query.setClass(MPartition.class);
+        query.setOrdering("partitionName ascending");
+
+        @SuppressWarnings("unchecked")
+        List<MPartition> mparts = (List<MPartition>) query.executeWithMap(queryWithParams.getSecond());
+        List<Partition> partitions = convertToParts(catName, dbName, tblName, mparts);
+        query.closeAll();
+
+        return partitions;
+      }
+    });
   }
 
   private void dropPartitionsNoTxn(String catName, String dbName, String tblName, List<String> partNames) {
@@ -10277,8 +10296,27 @@ public class ObjectStore implements RawStore, Configurable {
       int max_events = MetastoreConf.getIntVar(conf, MetastoreConf.ConfVars.EVENT_CLEAN_MAX_EVENTS);
       max_events = max_events > 0 ? max_events : Integer.MAX_VALUE;
       query.setRange(0, max_events);
+      query.setOrdering("eventId ascending");
 
-      Collection<MNotificationLog> toBeRemoved = (Collection) query.execute(tooOld);
+      List<MNotificationLog> toBeRemoved = (List) query.execute(tooOld);
+      if (toBeRemoved == null || toBeRemoved.size() == 0) {
+        LOG.info("No events found to be cleaned with eventTime < {}.", tooOld);
+      } else {
+        NotificationEvent firstEvent = translateDbToThrift(toBeRemoved.get(0));
+        long minEventId = firstEvent.getEventId();
+        long minEventTime = firstEvent.getEventTime();
+        long maxEventId = minEventId;
+        long maxEventTime = minEventTime;
+        if (toBeRemoved.size() > 1) {
+          NotificationEvent lastEvent =
+                  translateDbToThrift(toBeRemoved.get(toBeRemoved.size() - 1));
+          maxEventId = lastEvent.getEventId();
+          maxEventTime = lastEvent.getEventTime();
+        }
+        LOG.info("Cleaned {} events with eventTime < {}, minimum eventId {} (with eventTime {}) " +
+                        "and maximum eventId {} (with eventTime {})",
+                toBeRemoved.size(), tooOld, minEventId, minEventTime, maxEventId, maxEventTime);
+      }
       if (CollectionUtils.isNotEmpty(toBeRemoved)) {
         pm.deletePersistentAll(toBeRemoved);
       }
