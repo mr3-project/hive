@@ -94,8 +94,8 @@ import org.apache.hadoop.hive.ql.log.PerfLogger;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.HiveUtils;
-import org.apache.hadoop.hive.ql.metadata.SessionHiveMetaStoreClient;
 import org.apache.hadoop.hive.ql.metadata.Table;
+import org.apache.hadoop.hive.ql.metadata.TempTable;
 import org.apache.hadoop.hive.ql.security.HiveAuthenticationProvider;
 import org.apache.hadoop.hive.ql.security.authorization.HiveAuthorizationProvider;
 import org.apache.hadoop.hive.ql.security.authorization.plugin.AuthorizationMetaStoreFilterHook;
@@ -139,7 +139,7 @@ public class SessionState {
   private final Map<String, Map<String, Table>> tempTables = new ConcurrentHashMap<>();
   private final Map<String, Map<String, ColumnStatisticsObj>> tempTableColStats =
       new ConcurrentHashMap<>();
-  private final Map<String, SessionHiveMetaStoreClient.TempTable> tempPartitions =
+  private final Map<String, TempTable> tempPartitions =
       new ConcurrentHashMap<>();
 
   public static final short SESSION_SCRATCH_DIR_PERMISSION = (short) 01733;
@@ -1319,35 +1319,35 @@ public class SessionState {
    * @throws IOException
    */
   public void loadReloadableAuxJars() throws IOException {
-    final Set<String> reloadedAuxJars = new HashSet<String>();
+    LOG.info("Reloading auxiliary JAR files");
 
     final String renewableJarPath = sessionConf.getVar(ConfVars.HIVERELOADABLEJARS);
     // do nothing if this property is not specified or empty
-    if (renewableJarPath == null || renewableJarPath.isEmpty()) {
+    if (StringUtils.isBlank(renewableJarPath)) {
+      LOG.warn("Configuration {} not specified", ConfVars.HIVERELOADABLEJARS);
       return;
     }
 
-    Set<String> jarPaths = FileUtils.getJarFilesByPath(renewableJarPath, sessionConf);
-
     // load jars under the hive.reloadable.aux.jars.path
-    if (!jarPaths.isEmpty()) {
-      reloadedAuxJars.addAll(jarPaths);
-    }
+    final Set<String> jarPaths = FileUtils.getJarFilesByPath(renewableJarPath, sessionConf);
+
+    LOG.info("Auxiliary JAR files discovered for reload: {}", jarPaths);
 
     // remove the previous renewable jars
-    if (preReloadableAuxJars != null && !preReloadableAuxJars.isEmpty()) {
+    if (!preReloadableAuxJars.isEmpty()) {
       Utilities.removeFromClassPath(preReloadableAuxJars.toArray(new String[0]));
     }
 
-    if (reloadedAuxJars != null && !reloadedAuxJars.isEmpty()) {
+    if (!jarPaths.isEmpty()) {
       AddToClassPathAction addAction = new AddToClassPathAction(
-          SessionState.get().getConf().getClassLoader(), reloadedAuxJars);
+          SessionState.get().getConf().getClassLoader(), jarPaths);
       final ClassLoader currentCLoader = AccessController.doPrivileged(addAction);
       sessionConf.setClassLoader(currentCLoader);
       Thread.currentThread().setContextClassLoader(currentCLoader);
     }
+
     preReloadableAuxJars.clear();
-    preReloadableAuxJars.addAll(reloadedAuxJars);
+    preReloadableAuxJars.addAll(jarPaths);
   }
 
   static void registerJars(List<String> newJars) throws IllegalArgumentException {
@@ -1891,7 +1891,7 @@ public class SessionState {
   public Map<String, Map<String, Table>> getTempTables() {
     return tempTables;
   }
-  public Map<String, SessionHiveMetaStoreClient.TempTable> getTempPartitions() {
+  public Map<String, TempTable> getTempPartitions() {
     return tempPartitions;
   }
 

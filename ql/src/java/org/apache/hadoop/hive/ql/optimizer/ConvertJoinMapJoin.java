@@ -525,7 +525,7 @@ public class ConvertJoinMapJoin implements NodeProcessor {
       mapJoinDesc =
           new MapJoinDesc(
                   MapJoinProcessor.getKeys(joinOp.getConf().isLeftInputJoin(),
-                  joinOp.getConf().getBaseSrc(), joinOp).getSecond(),
+                  joinOp.getConf().getBaseSrc(), joinOp).getRight(),
                   null, joinDesc.getExprs(), null, null,
                   joinDesc.getOutputColumnNames(), mapJoinConversionPos, joinDesc.getConds(),
                   joinDesc.getFilters(), joinDesc.getNoOuterJoin(), null,
@@ -1077,10 +1077,7 @@ public class ConvertJoinMapJoin implements NodeProcessor {
     Set<Integer> bigTableCandidateSet =
         MapJoinProcessor.getBigTableCandidates(conds, /* isSupportFullOuter */ true);
 
-    // This is a temporary fix to ArrayIndexOutOfBoundsException to be raised later.
-    // TODO: check if this occurs only in Hive-MR3, or if it is a bug in Hive
-    if (bigTableCandidateSet.size() == 0) {
-      LOG.warn("bigTableCandidateSet is empty, so cannot determine a big table position");
+    if (bigTableCandidateSet.isEmpty()) {
       return null;
     }
 
@@ -1189,6 +1186,11 @@ public class ConvertJoinMapJoin implements NodeProcessor {
         bigInputStat = currInputStat;
       }
 
+    }
+
+    if (bigTablePosition == -1) {
+      LOG.debug("No big table selected, no MapJoin");
+      return null;
     }
 
     // Check if size of data to shuffle (larger table) is less than given max size

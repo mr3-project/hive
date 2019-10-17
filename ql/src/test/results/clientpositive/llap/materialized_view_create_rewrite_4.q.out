@@ -467,12 +467,18 @@ POSTHOOK: Input: default@cmv_mat_view_n5
 POSTHOOK: Output: default@cmv_mat_view_n5
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
+  Stage-1 depends on stages: Stage-0
 
 STAGE PLANS:
   Stage: Stage-0
     Alter Materialized View Rewrite
       name: default.cmv_mat_view_n5
       enable: true
+
+  Stage: Stage-1
+    Materialized View Update
+      name: default.cmv_mat_view_n5
+      retrieveAndInclude: true
 
 PREHOOK: query: ALTER MATERIALIZED VIEW cmv_mat_view_n5 ENABLE REWRITE
 PREHOOK: type: ALTER_MATERIALIZED_VIEW_REWRITE
@@ -702,7 +708,7 @@ STAGE PLANS:
     Tez
 #### A masked pattern was here ####
       Edges:
-        Reducer 2 <- Map 1 (SIMPLE_EDGE), Reducer 7 (ONE_TO_ONE_EDGE)
+        Reducer 2 <- Map 1 (SIMPLE_EDGE), Reducer 7 (SIMPLE_EDGE)
         Reducer 3 <- Reducer 2 (CUSTOM_SIMPLE_EDGE)
         Reducer 4 <- Reducer 2 (SIMPLE_EDGE)
         Reducer 6 <- Map 5 (SIMPLE_EDGE), Map 8 (SIMPLE_EDGE)
@@ -1679,7 +1685,7 @@ STAGE PLANS:
     Tez
 #### A masked pattern was here ####
       Edges:
-        Reducer 2 <- Map 1 (SIMPLE_EDGE), Reducer 7 (ONE_TO_ONE_EDGE)
+        Reducer 2 <- Map 1 (SIMPLE_EDGE), Reducer 7 (SIMPLE_EDGE)
         Reducer 3 <- Reducer 2 (CUSTOM_SIMPLE_EDGE)
         Reducer 4 <- Reducer 2 (SIMPLE_EDGE)
         Reducer 6 <- Map 5 (SIMPLE_EDGE), Map 8 (SIMPLE_EDGE)
